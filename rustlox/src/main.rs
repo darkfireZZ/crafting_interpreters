@@ -8,15 +8,17 @@ type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug)]
 enum Error {
-    CliError,
-    IoError(io::Error),
+    Cli,
+    Io(io::Error),
+    Source(SourceError),
 }
 
 impl Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::CliError => write!(f, "Usage: rustlox [script]"),
-            Self::IoError(io_err) => io_err.fmt(f),
+            Self::Cli => write!(f, "Usage: rustlox [script]"),
+            Self::Io(io_err) => io_err.fmt(f),
+            Self::Source(src_err) => src_err.fmt(f),
         }
     }
 }
@@ -25,7 +27,30 @@ impl std::error::Error for Error {}
 
 impl From<io::Error> for Error {
     fn from(err: io::Error) -> Self {
-        Self::IoError(err)
+        Self::Io(err)
+    }
+}
+
+#[derive(Debug)]
+struct SourceError {
+    line: usize,
+    ty: SourceErrorType,
+}
+
+impl Display for SourceError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "[line {}] Error: {}", self.line, self.ty)
+    }
+}
+
+impl std::error::Error for SourceError {}
+
+#[derive(Debug)]
+enum SourceErrorType {}
+
+impl Display for SourceErrorType {
+    fn fmt(&self, _f: &mut fmt::Formatter) -> fmt::Result {
+        unimplemented!()
     }
 }
 
@@ -41,7 +66,7 @@ fn main() -> ExitCode {
                 .expect("There is exactly 1 argument");
             run_file(&script_name)
         }
-        _ => Err(Error::CliError),
+        _ => Err(Error::Cli),
     };
 
     match result {
@@ -67,6 +92,7 @@ fn run_prompt() -> Result<()> {
             return Ok(());
         }
 
+        // TODO: Don't exit on source error
         run(&buffer)?;
 
         buffer.clear();
