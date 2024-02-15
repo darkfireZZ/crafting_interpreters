@@ -100,7 +100,7 @@ impl<'a> Scanner<'a> {
     pub fn new(source: &'a str) -> Self {
         Self {
             source,
-            current_line: 0,
+            current_line: 1,
         }
     }
 
