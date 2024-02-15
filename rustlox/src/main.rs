@@ -54,6 +54,7 @@ impl std::error::Error for SourceError {}
 enum SourceErrorType {
     UnexpectedCharacter(char),
     UnterminatedStringLiteral,
+    UnterminatedMultilineComment,
 }
 
 impl Display for SourceErrorType {
@@ -64,6 +65,9 @@ impl Display for SourceErrorType {
             }
             Self::UnterminatedStringLiteral => {
                 write!(f, "Unterminated string literal")
+            }
+            Self::UnterminatedMultilineComment => {
+                write!(f, "Unterminated multiline comment")
             }
         }
     }

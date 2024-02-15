@@ -185,6 +185,39 @@ impl<'a> Scanner<'a> {
         let token = identifier_or_keyword_to_token(&self.source[..end_index]);
         self.consume(token, end_index)
     }
+
+    fn consume_multiline_comment(&mut self) {
+        debug_assert_eq!(self.source.as_bytes()[0], b'/');
+        debug_assert_eq!(self.source.as_bytes()[1], b'*');
+
+        let mut len = 2;
+
+        let mut prev_is_star = false;
+        for c in self.source[2..].as_bytes() {
+            len += 1;
+            match c {
+                b'\n' => {
+                    self.current_line += 1;
+                    prev_is_star = false;
+                }
+                b'*' => {
+                    prev_is_star = true;
+                }
+                b'/' if prev_is_star => {
+                    self.source = &self.source[len..];
+                    return;
+                }
+                _ => {
+                    prev_is_star = false;
+                }
+            }
+        }
+
+        crate::report_error(SourceError {
+            ty: SourceErrorType::UnterminatedMultilineComment,
+            line: self.current_line,
+        });
+    }
 }
 
 impl<'a> Iterator for Scanner<'a> {
@@ -231,15 +264,15 @@ impl<'a> Iterator for Scanner<'a> {
                             self.consume(Token::Greater, 1)
                         })
                     }
-                    b'/' => {
-                        if self.source.as_bytes().get(1) == Some(&b'/') {
+                    b'/' => match self.source.as_bytes().get(1) {
+                        Some(&b'/') => {
                             let end_of_comment =
                                 self.source.find('\n').unwrap_or(self.source.len());
                             self.source = &self.source[end_of_comment..];
-                        } else {
-                            return Some(self.consume(Token::Slash, 1));
                         }
-                    }
+                        Some(&b'*') => self.consume_multiline_comment(),
+                        _ => return Some(self.consume(Token::Slash, 1)),
+                    },
                     b'"' => match self.consume_string_literal() {
                         Ok(token) => {
                             return Some(token);
