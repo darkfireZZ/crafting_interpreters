@@ -65,6 +65,32 @@ impl<'a> Display for TokenInfo<'a> {
     }
 }
 
+fn is_identifier_start_char(c: u8) -> bool {
+    c.is_ascii_alphabetic() || c == b'_'
+}
+
+fn identifier_or_keyword_to_token(identifier: &str) -> Token {
+    match identifier {
+        "and" => Token::And,
+        "class" => Token::Class,
+        "else" => Token::Else,
+        "false" => Token::False,
+        "for" => Token::For,
+        "fun" => Token::Fun,
+        "if" => Token::If,
+        "nil" => Token::Nil,
+        "or" => Token::Or,
+        "print" => Token::Print,
+        "return" => Token::Return,
+        "super" => Token::Super,
+        "this" => Token::This,
+        "true" => Token::True,
+        "var" => Token::Var,
+        "while" => Token::While,
+        _ => Token::Identifier,
+    }
+}
+
 pub struct Scanner<'a> {
     source: &'a str,
     current_line: usize,
@@ -147,6 +173,18 @@ impl<'a> Scanner<'a> {
 
         self.consume(Token::Number(number_value), end_index)
     }
+
+    fn consume_identifier_or_keyword(&mut self) -> TokenInfo<'a> {
+        debug_assert!(is_identifier_start_char(self.source.as_bytes()[0]));
+
+        let end_index = 1 + self.source[1..]
+            .as_bytes()
+            .iter()
+            .take_while(|c| c.is_ascii_alphanumeric() || **c == b'_')
+            .count();
+        let token = identifier_or_keyword_to_token(&self.source[..end_index]);
+        self.consume(token, end_index)
+    }
 }
 
 impl<'a> Iterator for Scanner<'a> {
@@ -209,6 +247,9 @@ impl<'a> Iterator for Scanner<'a> {
                         Err(error) => crate::report_error(error),
                     },
                     digit if digit.is_ascii_digit() => return Some(self.consume_number_literal()),
+                    c if is_identifier_start_char(*c) => {
+                        return Some(self.consume_identifier_or_keyword())
+                    }
                     b'\n' => {
                         self.current_line += 1;
                         self.source = &self.source[1..];
