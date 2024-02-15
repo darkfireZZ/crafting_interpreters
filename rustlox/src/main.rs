@@ -38,8 +38,8 @@ impl From<io::Error> for Error {
 
 #[derive(Debug)]
 struct SourceError {
-    line: usize,
     ty: SourceErrorType,
+    line: usize,
 }
 
 impl Display for SourceError {
@@ -53,6 +53,7 @@ impl std::error::Error for SourceError {}
 #[derive(Debug)]
 enum SourceErrorType {
     UnexpectedCharacter(char),
+    UnterminatedStringLiteral,
 }
 
 impl Display for SourceErrorType {
@@ -60,6 +61,9 @@ impl Display for SourceErrorType {
         match self {
             Self::UnexpectedCharacter(c) => {
                 write!(f, "Unexpected character \"{}\"", c.escape_default())
+            }
+            Self::UnterminatedStringLiteral => {
+                write!(f, "Unterminated string literal")
             }
         }
     }

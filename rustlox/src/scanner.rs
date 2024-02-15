@@ -29,9 +29,9 @@ pub enum Token {
     LessEqual,
 
     // Literals
-    Identifier(String),
-    String(String),
-    Number(String),
+    Identifier,
+    String,
+    Number,
 
     // Keywords
     And,
@@ -89,6 +89,31 @@ impl<'a> Scanner<'a> {
             line: self.current_line,
         }
     }
+
+    fn consume_string_literal(&mut self) -> Result<TokenInfo<'a>, SourceError> {
+        debug_assert!(self.source.as_bytes()[0] == b'"');
+
+        // Already count opening and closing double quotes.
+        let mut len = 2;
+        for c in self.source[1..].chars() {
+            if c == '\n' {
+                self.current_line += 1;
+            } else if c == '\"' {
+                return Ok(self.consume(Token::String, len));
+            }
+            len += c.len_utf8();
+        }
+
+        // If the loop terminates, all characters in the source have been
+        // consumed but no closing double quote was found.
+
+        self.source = "";
+
+        Err(SourceError {
+            ty: SourceErrorType::UnterminatedStringLiteral,
+            line: self.current_line,
+        })
+    }
 }
 
 impl<'a> Iterator for Scanner<'a> {
@@ -144,6 +169,12 @@ impl<'a> Iterator for Scanner<'a> {
                             return Some(self.consume(Token::Slash, 1));
                         }
                     }
+                    b'"' => match self.consume_string_literal() {
+                        Ok(token) => {
+                            return Some(token);
+                        }
+                        Err(error) => crate::report_error(error),
+                    },
                     b'\n' => {
                         self.current_line += 1;
                         self.source = &self.source[1..];
@@ -156,8 +187,8 @@ impl<'a> Iterator for Scanner<'a> {
                             self.source.chars().next().expect("source is non-empty");
                         self.source = &self.source[unexpected_char.len_utf8()..];
                         let error = SourceError {
-                            line: self.current_line,
                             ty: SourceErrorType::UnexpectedCharacter(unexpected_char),
+                            line: self.current_line,
                         };
                         crate::report_error(error);
                     }
