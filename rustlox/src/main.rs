@@ -1,8 +1,13 @@
-use std::{
-    fmt::{self, Display},
-    io::{self, Write},
-    process::ExitCode,
+use {
+    crate::scanner::Scanner,
+    std::{
+        fmt::{self, Display},
+        io::{self, Write},
+        process::ExitCode,
+    },
 };
+
+mod scanner;
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -46,12 +51,22 @@ impl Display for SourceError {
 impl std::error::Error for SourceError {}
 
 #[derive(Debug)]
-enum SourceErrorType {}
+enum SourceErrorType {
+    UnexpectedCharacter(char),
+}
 
 impl Display for SourceErrorType {
-    fn fmt(&self, _f: &mut fmt::Formatter) -> fmt::Result {
-        unimplemented!()
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::UnexpectedCharacter(c) => {
+                write!(f, "Unexpected character \"{}\"", c.escape_default())
+            }
+        }
     }
+}
+
+fn report_error(err: SourceError) {
+    eprintln!("{}", err);
 }
 
 fn main() -> ExitCode {
@@ -110,19 +125,4 @@ fn run(source: &str) -> Result<()> {
     }
 
     Ok(())
-}
-
-struct Scanner {}
-
-impl Scanner {
-    fn new(_source: &str) -> Self {
-        unimplemented!()
-    }
-}
-
-impl Iterator for Scanner {
-    type Item = String;
-    fn next(&mut self) -> Option<Self::Item> {
-        unimplemented!()
-    }
 }
