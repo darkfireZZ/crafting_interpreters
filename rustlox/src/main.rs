@@ -15,7 +15,6 @@ type Result<T> = std::result::Result<T, Error>;
 enum Error {
     Cli,
     Io(io::Error),
-    Source(SourceError),
 }
 
 impl Display for Error {
@@ -23,7 +22,6 @@ impl Display for Error {
         match self {
             Self::Cli => write!(f, "Usage: rustlox [script]"),
             Self::Io(io_err) => io_err.fmt(f),
-            Self::Source(src_err) => src_err.fmt(f),
         }
     }
 }
