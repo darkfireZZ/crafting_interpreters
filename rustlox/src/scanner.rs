@@ -31,7 +31,7 @@ pub enum Token {
     // Literals
     Identifier,
     String,
-    Number,
+    Number(f64),
 
     // Keywords
     And,
@@ -91,7 +91,7 @@ impl<'a> Scanner<'a> {
     }
 
     fn consume_string_literal(&mut self) -> Result<TokenInfo<'a>, SourceError> {
-        debug_assert!(self.source.as_bytes()[0] == b'"');
+        debug_assert_eq!(self.source.as_bytes()[0], b'"');
 
         // Already count opening and closing double quotes.
         let mut len = 2;
@@ -113,6 +113,39 @@ impl<'a> Scanner<'a> {
             ty: SourceErrorType::UnterminatedStringLiteral,
             line: self.current_line,
         })
+    }
+
+    fn consume_number_literal(&mut self) -> TokenInfo<'a> {
+        debug_assert!(self.source.as_bytes()[0].is_ascii_digit());
+
+        let end_index = match self.source[1..]
+            .find(|c: char| !c.is_ascii_digit())
+            .map(|index| index + 1)
+        {
+            Some(index) => {
+                if self.source.as_bytes()[index] == b'.'
+                    && self
+                        .source
+                        .as_bytes()
+                        .get(index + 1)
+                        .is_some_and(u8::is_ascii_digit)
+                {
+                    self.source[index + 1..]
+                        .find(|c: char| !c.is_ascii_digit())
+                        .map(|end_index| end_index + index + 1)
+                        .unwrap_or(self.source.len())
+                } else {
+                    index
+                }
+            }
+            None => self.source.len(),
+        };
+
+        let number_value = self.source[..end_index]
+            .parse()
+            .expect("valid f64 string representation");
+
+        self.consume(Token::Number(number_value), end_index)
     }
 }
 
@@ -175,6 +208,7 @@ impl<'a> Iterator for Scanner<'a> {
                         }
                         Err(error) => crate::report_error(error),
                     },
+                    digit if digit.is_ascii_digit() => return Some(self.consume_number_literal()),
                     b'\n' => {
                         self.current_line += 1;
                         self.source = &self.source[1..];
