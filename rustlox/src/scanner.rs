@@ -3,7 +3,7 @@ use {
     std::fmt::{self, Display},
 };
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Token {
     // Single-character tokens
     LeftParen,
@@ -52,11 +52,11 @@ pub enum Token {
     While,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct TokenInfo<'a> {
-    token: Token,
-    lexeme: &'a str,
-    line: usize,
+    pub token: Token,
+    pub lexeme: &'a str,
+    pub line: usize,
 }
 
 impl<'a> Display for TokenInfo<'a> {
@@ -91,6 +91,7 @@ fn identifier_or_keyword_to_token(identifier: &str) -> Token {
     }
 }
 
+#[derive(Debug)]
 pub struct Scanner<'a> {
     source: &'a str,
     current_line: usize,

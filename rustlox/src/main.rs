@@ -1,5 +1,5 @@
 use {
-    crate::scanner::Scanner,
+    crate::{parser::Parser, scanner::Scanner},
     std::{
         fmt::{self, Display},
         io::{self, Write},
@@ -7,6 +7,7 @@ use {
     },
 };
 
+mod parser;
 mod scanner;
 
 type Result<T> = std::result::Result<T, Error>;
@@ -126,9 +127,11 @@ fn run_file(script_name: &str) -> Result<()> {
 }
 
 fn run(source: &str) -> Result<()> {
-    for token in Scanner::new(source) {
-        println!("{}", token);
-    }
+    let scanner = Scanner::new(source);
+    let mut parser = Parser::new(scanner);
+    let parsed_expr = parser.parse();
+
+    println!("{:?}", parsed_expr);
 
     Ok(())
 }
