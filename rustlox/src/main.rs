@@ -129,9 +129,9 @@ fn run_file(script_name: &str) -> Result<()> {
 fn run(source: &str) -> Result<()> {
     let scanner = Scanner::new(source);
     let mut parser = Parser::new(scanner);
-    let parsed_expr = parser.parse();
-
-    println!("{:?}", parsed_expr);
+    if let Some(parsed_expr) = parser.parse() {
+        println!("{}", parsed_expr);
+    }
 
     Ok(())
 }

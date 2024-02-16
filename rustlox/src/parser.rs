@@ -25,6 +25,25 @@ pub enum Expr<'a> {
     },
 }
 
+impl<'a> Display for Expr<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Literal { literal } => literal.lexeme.fmt(f),
+            Self::Unary { operator, expr } => {
+                write!(f, "({} {})", operator.lexeme, expr)
+            }
+            Self::Binary {
+                operator,
+                left,
+                right,
+            } => {
+                write!(f, "({} {} {})", operator.lexeme, left, right)
+            }
+            Self::Grouping { expr } => write!(f, "{}", expr),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 enum ParseErrorType {
     MissingRightParen,
