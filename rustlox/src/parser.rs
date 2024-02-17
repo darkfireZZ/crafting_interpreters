@@ -7,6 +7,12 @@ use {
 };
 
 #[derive(Debug)]
+pub enum Stmt<'a> {
+    Expr(Expr<'a>),
+    Print(Expr<'a>),
+}
+
+#[derive(Debug)]
 pub enum Expr<'a> {
     Literal {
         literal: TokenInfo<'a>,
@@ -47,6 +53,7 @@ impl<'a> Display for Expr<'a> {
 #[derive(Clone, Copy, Debug)]
 enum ParseErrorType {
     MissingRightParen,
+    MissingSemicolon,
     ExpectedExpression,
 }
 
@@ -54,6 +61,7 @@ impl Display for ParseErrorType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::MissingRightParen => write!(f, "Missing right parenthesis"),
+            Self::MissingSemicolon => write!(f, "Missing semicolon"),
             Self::ExpectedExpression => write!(f, "Expected expression"),
         }
     }
@@ -92,13 +100,64 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn parse(&mut self) -> Option<Expr<'a>> {
-        match self.parse_expression() {
-            Ok(expr) => Some(expr),
-            Err(err) => {
-                report_parse_error(err);
-                None
+    pub fn parse(&mut self) -> Option<Vec<Stmt<'a>>> {
+        let mut stmts = Vec::new();
+        let mut had_error = false;
+        while let Some(_) = self.scanner.peek() {
+            match self.parse_statement() {
+                Ok(stmt) => stmts.push(stmt),
+                Err(err) => {
+                    report_parse_error(err);
+                    had_error = true;
+                }
             }
+        }
+
+        if had_error {
+            None
+        } else {
+            Some(stmts)
+        }
+    }
+
+    fn parse_statement(&mut self) -> Result<Stmt<'a>, ParseError<'a>> {
+        if self.scanner.peek().expect("not at end").token == Token::Print {
+            self.parse_print_statement()
+        } else {
+            self.parse_expression_statement()
+        }
+    }
+
+    fn parse_print_statement(&mut self) -> Result<Stmt<'a>, ParseError<'a>> {
+        let next = self.scanner.next();
+        debug_assert!(next.is_some_and(|token| token.token == Token::Print));
+
+        let expr = self.parse_expression()?;
+
+        let next = self.scanner.peek();
+        if next.is_some_and(|token| token.token == Token::Semicolon) {
+            self.scanner.next();
+            Ok(Stmt::Print(expr))
+        } else {
+            Err(ParseError {
+                ty: ParseErrorType::MissingSemicolon,
+                token: next.copied(),
+            })
+        }
+    }
+
+    fn parse_expression_statement(&mut self) -> Result<Stmt<'a>, ParseError<'a>> {
+        let expr = self.parse_expression()?;
+
+        let next = self.scanner.peek();
+        if next.is_some_and(|token| token.token == Token::Semicolon) {
+            self.scanner.next();
+            Ok(Stmt::Expr(expr))
+        } else {
+            Err(ParseError {
+                ty: ParseErrorType::MissingSemicolon,
+                token: next.copied(),
+            })
         }
     }
 

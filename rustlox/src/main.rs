@@ -135,9 +135,6 @@ fn run(source: &str) -> Result<(), InterpreterError> {
     let scanner = Scanner::new(source);
     let mut parser = Parser::new(scanner);
     // TODO don't unwrap here
-    let expr = parser.parse().unwrap();
-    let value = eval::eval(&expr)?;
-    println!("{}", value);
-
-    Ok(())
+    let stmt = parser.parse().unwrap();
+    eval::eval(&stmt).map_err(InterpreterError::from)
 }

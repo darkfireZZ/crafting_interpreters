@@ -1,6 +1,6 @@
 use {
     crate::{
-        parser::Expr,
+        parser::{Expr, Stmt},
         scanner::{Token, TokenInfo},
     },
     std::fmt::{self, Display},
@@ -124,7 +124,25 @@ impl Display for Value {
     }
 }
 
-pub fn eval<'a>(expr: &Expr<'a>) -> Result<Value, RuntimeError<'a>> {
+pub fn eval<'a>(program: &[Stmt<'a>]) -> Result<(), RuntimeError<'a>> {
+    for stmt in program {
+        eval_stmt(stmt)?;
+    }
+    Ok(())
+}
+
+fn eval_stmt<'a>(stmt: &Stmt<'a>) -> Result<(), RuntimeError<'a>> {
+    match stmt {
+        Stmt::Print(expr) => {
+            // TODO: What if writing to stdout fails
+            println!("{}", eval_expr(expr)?);
+        },
+        Stmt::Expr(expr) => { eval_expr(expr)?; },
+    }
+    Ok(())
+}
+
+fn eval_expr<'a>(expr: &Expr<'a>) -> Result<Value, RuntimeError<'a>> {
     match expr {
         Expr::Literal { literal } => Ok(eval_literal(literal)),
         Expr::Unary { operator, expr } => eval_unary(operator, expr),
@@ -133,7 +151,7 @@ pub fn eval<'a>(expr: &Expr<'a>) -> Result<Value, RuntimeError<'a>> {
             left,
             right,
         } => eval_binary(operator, left, right),
-        Expr::Grouping { expr } => eval(expr),
+        Expr::Grouping { expr } => eval_expr(expr),
     }
 }
 
@@ -152,7 +170,7 @@ fn eval_literal(literal: &TokenInfo<'_>) -> Value {
 }
 
 fn eval_unary<'a>(operator: &TokenInfo<'a>, expr: &Expr<'a>) -> Result<Value, RuntimeError<'a>> {
-    let val = eval(expr)?;
+    let val = eval_expr(expr)?;
     Ok(match operator.token {
         Token::Minus => Value::Number(-val.convert_to_number(operator)?),
         Token::Bang => Value::Boolean(!val.convert_to_boolean()),
@@ -168,8 +186,8 @@ fn eval_binary<'a>(
     left: &Expr<'a>,
     right: &Expr<'a>,
 ) -> Result<Value, RuntimeError<'a>> {
-    let left = eval(left)?;
-    let right = eval(right)?;
+    let left = eval_expr(left)?;
+    let right = eval_expr(right)?;
 
     Ok(match operator.token {
         Token::Plus => match (&left, &right) {
