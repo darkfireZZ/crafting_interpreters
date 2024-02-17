@@ -1,5 +1,5 @@
 use {
-    crate::{parser::Parser, scanner::Scanner},
+    crate::{eval::RuntimeError, parser::Parser, scanner::Scanner},
     std::{
         fmt::{self, Display},
         io::{self, Write},
@@ -7,31 +7,28 @@ use {
     },
 };
 
+mod eval;
 mod parser;
 mod scanner;
 
-type Result<T> = std::result::Result<T, Error>;
-
 #[derive(Debug)]
-enum Error {
-    Cli,
-    Io(io::Error),
+enum InterpreterError<'a> {
+    RuntimeError(RuntimeError<'a>),
 }
 
-impl Display for Error {
+impl fmt::Display for InterpreterError<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::Cli => write!(f, "Usage: rustlox [script]"),
-            Self::Io(io_err) => io_err.fmt(f),
+            Self::RuntimeError(err) => err.fmt(f),
         }
     }
 }
 
-impl std::error::Error for Error {}
+impl std::error::Error for InterpreterError<'_> {}
 
-impl From<io::Error> for Error {
-    fn from(err: io::Error) -> Self {
-        Self::Io(err)
+impl<'a> From<RuntimeError<'a>> for InterpreterError<'a> {
+    fn from(err: RuntimeError<'a>) -> Self {
+        Self::RuntimeError(err)
     }
 }
 
@@ -88,7 +85,10 @@ fn main() -> ExitCode {
                 .expect("There is exactly 1 argument");
             run_file(&script_name)
         }
-        _ => Err(Error::Cli),
+        _ => {
+            eprintln!("Usage: rustlox [script]");
+            std::process::exit(1);
+        }
     };
 
     match result {
@@ -101,9 +101,10 @@ fn main() -> ExitCode {
 }
 
 const PROMPT_SYMBOL: &str = "> ";
-fn run_prompt() -> Result<()> {
+fn run_prompt() -> io::Result<()> {
     let stdin = io::stdin();
     let mut stdout = io::stdout();
+    let mut stderr = io::stderr();
     let mut buffer = String::new();
 
     loop {
@@ -114,24 +115,29 @@ fn run_prompt() -> Result<()> {
             return Ok(());
         }
 
-        // TODO: Don't exit on source error
-        run(&buffer)?;
+        if let Err(err) = run(&buffer) {
+            writeln!(stderr, "{}", err)?;
+        }
 
         buffer.clear();
     }
 }
 
-fn run_file(script_name: &str) -> Result<()> {
+fn run_file(script_name: &str) -> io::Result<()> {
     let script = std::fs::read_to_string(script_name)?;
-    run(&script)
+    if let Err(err) = run(&script) {
+        writeln!(io::stderr(), "{}", err)?;
+    }
+    Ok(())
 }
 
-fn run(source: &str) -> Result<()> {
+fn run(source: &str) -> Result<(), InterpreterError> {
     let scanner = Scanner::new(source);
     let mut parser = Parser::new(scanner);
-    if let Some(parsed_expr) = parser.parse() {
-        println!("{}", parsed_expr);
-    }
+    // TODO don't unwrap here
+    let expr = parser.parse().unwrap();
+    let value = eval::eval(&expr)?;
+    println!("{}", value);
 
     Ok(())
 }
