@@ -1,0 +1,18 @@
+// this is a comment
+
+/*
+This is a multiline comment
+*/
+
+var number = 42.0;
+print number;
+
+print "one";
+print true;
+print 2 + 1;
+
+var number = "Hello, World!";
+print number;
+
+var undefined;
+print undefined;

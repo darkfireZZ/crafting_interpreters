@@ -1,9 +1,0 @@
-// this is a comment
-(( )){} // grouping stuff
-!*+-/=<> <= == // operators
-
-/*
-This is a multiline comment
-*/
-
-var number = 42.0;

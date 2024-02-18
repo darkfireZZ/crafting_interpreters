@@ -1,5 +1,9 @@
 use {
-    crate::{eval::RuntimeError, parser::Parser, scanner::Scanner},
+    crate::{
+        eval::{Interpreter, RuntimeError},
+        parser::Parser,
+        scanner::Scanner,
+    },
     std::{
         fmt::{self, Display},
         io::{self, Write},
@@ -135,6 +139,8 @@ fn run(source: &str) -> Result<(), InterpreterError> {
     let scanner = Scanner::new(source);
     let mut parser = Parser::new(scanner);
     // TODO don't unwrap here
-    let stmt = parser.parse().unwrap();
-    eval::eval(&stmt).map_err(InterpreterError::from)
+    let stmts = parser.parse().unwrap();
+    Interpreter::new()
+        .eval(&stmts)
+        .map_err(InterpreterError::from)
 }

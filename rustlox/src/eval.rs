@@ -3,7 +3,10 @@ use {
         parser::{Expr, Stmt},
         scanner::{Token, TokenInfo},
     },
-    std::fmt::{self, Display},
+    std::{
+        collections::HashMap,
+        fmt::{self, Display},
+    },
 };
 
 #[derive(Debug)]
@@ -26,6 +29,7 @@ enum RuntimeErrorType {
         expected: Vec<ValueType>,
         actual: ValueType,
     },
+    UndefinedVariable,
 }
 
 impl Display for RuntimeErrorType {
@@ -48,6 +52,7 @@ impl Display for RuntimeErrorType {
                     )
                 }
             },
+            Self::UndefinedVariable => write!(f, "Undefined variable"),
         }
     }
 }
@@ -77,7 +82,7 @@ impl Display for ValueType {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Value {
     Nil,
     Boolean(bool),
@@ -124,124 +129,180 @@ impl Display for Value {
     }
 }
 
-pub fn eval<'a>(program: &[Stmt<'a>]) -> Result<(), RuntimeError<'a>> {
-    for stmt in program {
-        eval_stmt(stmt)?;
+#[derive(Debug)]
+pub struct Interpreter<'a> {
+    environment: Environment<'a>,
+}
+
+impl<'a> Interpreter<'a> {
+    pub fn new() -> Self {
+        Self {
+            environment: Environment::new(),
+        }
     }
-    Ok(())
-}
 
-fn eval_stmt<'a>(stmt: &Stmt<'a>) -> Result<(), RuntimeError<'a>> {
-    match stmt {
-        Stmt::Print(expr) => {
-            // TODO: What if writing to stdout fails
-            println!("{}", eval_expr(expr)?);
-        },
-        Stmt::Expr(expr) => { eval_expr(expr)?; },
+    pub fn eval(&mut self, program: &[Stmt<'a>]) -> Result<(), RuntimeError<'a>> {
+        for stmt in program {
+            self.eval_stmt(stmt)?;
+        }
+        Ok(())
     }
-    Ok(())
-}
 
-fn eval_expr<'a>(expr: &Expr<'a>) -> Result<Value, RuntimeError<'a>> {
-    match expr {
-        Expr::Literal { literal } => Ok(eval_literal(literal)),
-        Expr::Unary { operator, expr } => eval_unary(operator, expr),
-        Expr::Binary {
-            operator,
-            left,
-            right,
-        } => eval_binary(operator, left, right),
-        Expr::Grouping { expr } => eval_expr(expr),
-    }
-}
-
-fn eval_literal(literal: &TokenInfo<'_>) -> Value {
-    match literal.token {
-        Token::Nil => Value::Nil,
-        Token::True => Value::Boolean(true),
-        Token::False => Value::Boolean(false),
-        Token::Number(val) => Value::Number(val),
-        Token::String => Value::String(literal.lexeme[1..literal.lexeme.len() - 1].to_owned()),
-        _ => panic!(
-            "Interpreter bug, tried to evaluate {} as a literal",
-            literal
-        ),
-    }
-}
-
-fn eval_unary<'a>(operator: &TokenInfo<'a>, expr: &Expr<'a>) -> Result<Value, RuntimeError<'a>> {
-    let val = eval_expr(expr)?;
-    Ok(match operator.token {
-        Token::Minus => Value::Number(-val.convert_to_number(operator)?),
-        Token::Bang => Value::Boolean(!val.convert_to_boolean()),
-        _ => panic!(
-            "Interpreter bug, tried to evaluate {} as unary operator",
-            operator
-        ),
-    })
-}
-
-fn eval_binary<'a>(
-    operator: &TokenInfo<'a>,
-    left: &Expr<'a>,
-    right: &Expr<'a>,
-) -> Result<Value, RuntimeError<'a>> {
-    let left = eval_expr(left)?;
-    let right = eval_expr(right)?;
-
-    Ok(match operator.token {
-        Token::Plus => match (&left, &right) {
-            (Value::Number(left), Value::Number(right)) => Value::Number(left + right),
-            (Value::String(left), Value::String(right)) => {
-                let mut concat = left.to_owned();
-                concat.push_str(right);
-                Value::String(concat)
+    fn eval_stmt(&mut self, stmt: &Stmt<'a>) -> Result<(), RuntimeError<'a>> {
+        match stmt {
+            Stmt::Print(expr) => {
+                // TODO: What if writing to stdout fails
+                println!("{}", self.eval_expr(expr)?);
             }
-            (Value::Number(_) | Value::String(_), _) => {
-                return Err(RuntimeError {
-                    ty: RuntimeErrorType::ExpectedDifferentType {
-                        actual: right.value_type(),
-                        expected: vec![left.value_type()],
-                    },
-                    token: *operator,
-                })
+            Stmt::Expr(expr) => {
+                self.eval_expr(expr)?;
             }
-            _ => {
-                return Err(RuntimeError {
-                    ty: RuntimeErrorType::ExpectedDifferentType {
-                        actual: left.value_type(),
-                        expected: vec![ValueType::String, ValueType::Number],
-                    },
-                    token: *operator,
-                })
+            Stmt::VariableDeclaration { name, initializer } => {
+                let initializer = match initializer {
+                    Some(expr) => self.eval_expr(expr)?,
+                    None => Value::Nil,
+                };
+                self.environment.define(name.lexeme, initializer);
             }
-        },
-        Token::Minus => {
-            Value::Number(left.convert_to_number(operator)? - right.convert_to_number(operator)?)
         }
-        Token::Star => {
-            Value::Number(left.convert_to_number(operator)? * right.convert_to_number(operator)?)
+        Ok(())
+    }
+
+    fn eval_expr(&mut self, expr: &Expr<'a>) -> Result<Value, RuntimeError<'a>> {
+        match expr {
+            Expr::Literal { literal } => Ok(self.eval_literal(literal)),
+            Expr::Unary { operator, expr } => self.eval_unary(operator, expr),
+            Expr::Binary {
+                operator,
+                left,
+                right,
+            } => self.eval_binary(operator, left, right),
+            Expr::Grouping { expr } => self.eval_expr(expr),
+            Expr::Variable { name } => self.environment.get(name),
         }
-        Token::Slash => {
-            Value::Number(left.convert_to_number(operator)? / right.convert_to_number(operator)?)
+    }
+
+    fn eval_literal(&mut self, literal: &TokenInfo<'a>) -> Value {
+        match literal.token {
+            Token::Nil => Value::Nil,
+            Token::True => Value::Boolean(true),
+            Token::False => Value::Boolean(false),
+            Token::Number(val) => Value::Number(val),
+            Token::String => Value::String(literal.lexeme[1..literal.lexeme.len() - 1].to_owned()),
+            _ => panic!(
+                "Interpreter bug, tried to evaluate {} as a literal",
+                literal
+            ),
         }
-        Token::Greater => {
-            Value::Boolean(left.convert_to_number(operator)? > right.convert_to_number(operator)?)
+    }
+
+    fn eval_unary(
+        &mut self,
+        operator: &TokenInfo<'a>,
+        expr: &Expr<'a>,
+    ) -> Result<Value, RuntimeError<'a>> {
+        let val = self.eval_expr(expr)?;
+        Ok(match operator.token {
+            Token::Minus => Value::Number(-val.convert_to_number(operator)?),
+            Token::Bang => Value::Boolean(!val.convert_to_boolean()),
+            _ => panic!(
+                "Interpreter bug, tried to evaluate {} as unary operator",
+                operator
+            ),
+        })
+    }
+
+    fn eval_binary(
+        &mut self,
+        operator: &TokenInfo<'a>,
+        left: &Expr<'a>,
+        right: &Expr<'a>,
+    ) -> Result<Value, RuntimeError<'a>> {
+        let left = self.eval_expr(left)?;
+        let right = self.eval_expr(right)?;
+
+        Ok(match operator.token {
+            Token::Plus => match (&left, &right) {
+                (Value::Number(left), Value::Number(right)) => Value::Number(left + right),
+                (Value::String(left), Value::String(right)) => {
+                    let mut concat = left.to_owned();
+                    concat.push_str(right);
+                    Value::String(concat)
+                }
+                (Value::Number(_) | Value::String(_), _) => {
+                    return Err(RuntimeError {
+                        ty: RuntimeErrorType::ExpectedDifferentType {
+                            actual: right.value_type(),
+                            expected: vec![left.value_type()],
+                        },
+                        token: *operator,
+                    })
+                }
+                _ => {
+                    return Err(RuntimeError {
+                        ty: RuntimeErrorType::ExpectedDifferentType {
+                            actual: left.value_type(),
+                            expected: vec![ValueType::String, ValueType::Number],
+                        },
+                        token: *operator,
+                    })
+                }
+            },
+            Token::Minus => Value::Number(
+                left.convert_to_number(operator)? - right.convert_to_number(operator)?,
+            ),
+            Token::Star => Value::Number(
+                left.convert_to_number(operator)? * right.convert_to_number(operator)?,
+            ),
+            Token::Slash => Value::Number(
+                left.convert_to_number(operator)? / right.convert_to_number(operator)?,
+            ),
+            Token::Greater => Value::Boolean(
+                left.convert_to_number(operator)? > right.convert_to_number(operator)?,
+            ),
+            Token::GreaterEqual => Value::Boolean(
+                left.convert_to_number(operator)? >= right.convert_to_number(operator)?,
+            ),
+            Token::Less => Value::Boolean(
+                left.convert_to_number(operator)? < right.convert_to_number(operator)?,
+            ),
+            Token::LessEqual => Value::Boolean(
+                left.convert_to_number(operator)? <= right.convert_to_number(operator)?,
+            ),
+            Token::EqualEqual => Value::Boolean(left == right),
+            Token::BangEqual => Value::Boolean(left != right),
+            _ => panic!(
+                "Interpreter bug, tried to evaluate {} as binary operator",
+                operator
+            ),
+        })
+    }
+}
+
+#[derive(Debug)]
+struct Environment<'a> {
+    variables: HashMap<&'a str, Value>,
+}
+
+impl<'a> Environment<'a> {
+    fn new() -> Self {
+        Self {
+            variables: HashMap::new(),
         }
-        Token::GreaterEqual => {
-            Value::Boolean(left.convert_to_number(operator)? >= right.convert_to_number(operator)?)
-        }
-        Token::Less => {
-            Value::Boolean(left.convert_to_number(operator)? < right.convert_to_number(operator)?)
-        }
-        Token::LessEqual => {
-            Value::Boolean(left.convert_to_number(operator)? <= right.convert_to_number(operator)?)
-        }
-        Token::EqualEqual => Value::Boolean(left == right),
-        Token::BangEqual => Value::Boolean(left != right),
-        _ => panic!(
-            "Interpreter bug, tried to evaluate {} as binary operator",
-            operator
-        ),
-    })
+    }
+
+    fn define(&mut self, name: &'a str, value: Value) {
+        self.variables.insert(name, value);
+    }
+
+    fn get(&self, name: &TokenInfo<'a>) -> Result<Value, RuntimeError<'a>> {
+        // TODO: This clone is not optimal, it would probably be possible to use a Cow here
+        self.variables
+            .get(name.lexeme)
+            .cloned()
+            .ok_or(RuntimeError {
+                ty: RuntimeErrorType::UndefinedVariable,
+                token: *name,
+            })
+    }
 }
