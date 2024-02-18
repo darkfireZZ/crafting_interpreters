@@ -111,6 +111,8 @@ fn run_prompt() -> io::Result<()> {
     let mut stderr = io::stderr();
     let mut buffer = String::new();
 
+    let mut interpreter = Interpreter::new();
+
     loop {
         write!(stdout, "{}", PROMPT_SYMBOL)?;
         stdout.flush()?;
@@ -119,7 +121,7 @@ fn run_prompt() -> io::Result<()> {
             return Ok(());
         }
 
-        if let Err(err) = run(&buffer) {
+        if let Err(err) = run(&mut interpreter, &buffer) {
             writeln!(stderr, "{}", err)?;
         }
 
@@ -129,18 +131,17 @@ fn run_prompt() -> io::Result<()> {
 
 fn run_file(script_name: &str) -> io::Result<()> {
     let script = std::fs::read_to_string(script_name)?;
-    if let Err(err) = run(&script) {
+    let mut interpreter = Interpreter::new();
+    if let Err(err) = run(&mut interpreter, &script) {
         writeln!(io::stderr(), "{}", err)?;
     }
     Ok(())
 }
 
-fn run(source: &str) -> Result<(), InterpreterError> {
+fn run<'a>(interpreter: &mut Interpreter, source: &'a str) -> Result<(), InterpreterError<'a>> {
     let scanner = Scanner::new(source);
     let mut parser = Parser::new(scanner);
     // TODO don't unwrap here
     let stmts = parser.parse().unwrap();
-    Interpreter::new()
-        .eval(&stmts)
-        .map_err(InterpreterError::from)
+    interpreter.eval(&stmts).map_err(InterpreterError::from)
 }

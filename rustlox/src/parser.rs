@@ -36,6 +36,10 @@ pub enum Expr<'a> {
     Variable {
         name: TokenInfo<'a>,
     },
+    Assignment {
+        name: TokenInfo<'a>,
+        value: Box<Expr<'a>>,
+    },
 }
 
 impl<'a> Display for Expr<'a> {
@@ -54,6 +58,7 @@ impl<'a> Display for Expr<'a> {
             }
             Self::Grouping { expr } => write!(f, "{}", expr),
             Self::Variable { name } => write!(f, "{}", name.lexeme),
+            Self::Assignment { name, value } => write!(f, "{} <- {}", name, value),
         }
     }
 }
@@ -64,6 +69,7 @@ enum ParseErrorType {
     MissingSemicolon,
     ExpectedExpression,
     ExpectedVariableName,
+    InvalidAssignmentTarget,
 }
 
 impl Display for ParseErrorType {
@@ -73,6 +79,7 @@ impl Display for ParseErrorType {
             Self::MissingSemicolon => write!(f, "Missing semicolon"),
             Self::ExpectedExpression => write!(f, "Expected expression"),
             Self::ExpectedVariableName => write!(f, "Expected variable name"),
+            Self::InvalidAssignmentTarget => write!(f, "Invalid assignment target"),
         }
     }
 }
@@ -117,8 +124,8 @@ impl<'a> Parser<'a> {
             match self.parse_declaration() {
                 Ok(stmt) => stmts.push(stmt),
                 Err(err) => {
-                    self.synchronize();
                     report_parse_error(err);
+                    self.synchronize();
                     had_error = true;
                 }
             }
@@ -170,7 +177,29 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expression(&mut self) -> Result<Expr<'a>, ParseError<'a>> {
-        self.parse_equality()
+        self.parse_assignment()
+    }
+
+    fn parse_assignment(&mut self) -> Result<Expr<'a>, ParseError<'a>> {
+        let left = self.parse_equality()?;
+
+        match self.matches(|token| token == Token::Equal) {
+            Some(equal) => {
+                let value = self.parse_assignment()?;
+                if let Expr::Variable { name } = left {
+                    Ok(Expr::Assignment {
+                        name,
+                        value: Box::new(value),
+                    })
+                } else {
+                    Err(ParseError {
+                        ty: ParseErrorType::InvalidAssignmentTarget,
+                        token: Some(equal),
+                    })
+                }
+            }
+            None => Ok(left),
+        }
     }
 
     fn parse_equality(&mut self) -> Result<Expr<'a>, ParseError<'a>> {
@@ -327,7 +356,9 @@ impl<'a> Parser<'a> {
                     self.scanner.next();
                     return;
                 }
-                _ => (),
+                _ => {
+                    self.scanner.next();
+                }
             }
         }
     }

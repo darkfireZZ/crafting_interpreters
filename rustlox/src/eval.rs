@@ -130,25 +130,25 @@ impl Display for Value {
 }
 
 #[derive(Debug)]
-pub struct Interpreter<'a> {
-    environment: Environment<'a>,
+pub struct Interpreter {
+    environment: Environment,
 }
 
-impl<'a> Interpreter<'a> {
+impl Interpreter {
     pub fn new() -> Self {
         Self {
             environment: Environment::new(),
         }
     }
 
-    pub fn eval(&mut self, program: &[Stmt<'a>]) -> Result<(), RuntimeError<'a>> {
+    pub fn eval<'a>(&mut self, program: &[Stmt<'a>]) -> Result<(), RuntimeError<'a>> {
         for stmt in program {
             self.eval_stmt(stmt)?;
         }
         Ok(())
     }
 
-    fn eval_stmt(&mut self, stmt: &Stmt<'a>) -> Result<(), RuntimeError<'a>> {
+    fn eval_stmt<'a>(&mut self, stmt: &Stmt<'a>) -> Result<(), RuntimeError<'a>> {
         match stmt {
             Stmt::Print(expr) => {
                 // TODO: What if writing to stdout fails
@@ -162,13 +162,13 @@ impl<'a> Interpreter<'a> {
                     Some(expr) => self.eval_expr(expr)?,
                     None => Value::Nil,
                 };
-                self.environment.define(name.lexeme, initializer);
+                self.environment.define(name.lexeme.to_owned(), initializer);
             }
         }
         Ok(())
     }
 
-    fn eval_expr(&mut self, expr: &Expr<'a>) -> Result<Value, RuntimeError<'a>> {
+    fn eval_expr<'a>(&mut self, expr: &Expr<'a>) -> Result<Value, RuntimeError<'a>> {
         match expr {
             Expr::Literal { literal } => Ok(self.eval_literal(literal)),
             Expr::Unary { operator, expr } => self.eval_unary(operator, expr),
@@ -179,10 +179,15 @@ impl<'a> Interpreter<'a> {
             } => self.eval_binary(operator, left, right),
             Expr::Grouping { expr } => self.eval_expr(expr),
             Expr::Variable { name } => self.environment.get(name),
+            Expr::Assignment { name, value } => {
+                let value = self.eval_expr(value)?;
+                self.environment.set(name, value.clone())?;
+                Ok(value)
+            }
         }
     }
 
-    fn eval_literal(&mut self, literal: &TokenInfo<'a>) -> Value {
+    fn eval_literal(&mut self, literal: &TokenInfo) -> Value {
         match literal.token {
             Token::Nil => Value::Nil,
             Token::True => Value::Boolean(true),
@@ -196,7 +201,7 @@ impl<'a> Interpreter<'a> {
         }
     }
 
-    fn eval_unary(
+    fn eval_unary<'a>(
         &mut self,
         operator: &TokenInfo<'a>,
         expr: &Expr<'a>,
@@ -212,7 +217,7 @@ impl<'a> Interpreter<'a> {
         })
     }
 
-    fn eval_binary(
+    fn eval_binary<'a>(
         &mut self,
         operator: &TokenInfo<'a>,
         left: &Expr<'a>,
@@ -280,22 +285,22 @@ impl<'a> Interpreter<'a> {
 }
 
 #[derive(Debug)]
-struct Environment<'a> {
-    variables: HashMap<&'a str, Value>,
+struct Environment {
+    variables: HashMap<String, Value>,
 }
 
-impl<'a> Environment<'a> {
+impl Environment {
     fn new() -> Self {
         Self {
             variables: HashMap::new(),
         }
     }
 
-    fn define(&mut self, name: &'a str, value: Value) {
+    fn define(&mut self, name: String, value: Value) {
         self.variables.insert(name, value);
     }
 
-    fn get(&self, name: &TokenInfo<'a>) -> Result<Value, RuntimeError<'a>> {
+    fn get<'a>(&self, name: &TokenInfo<'a>) -> Result<Value, RuntimeError<'a>> {
         // TODO: This clone is not optimal, it would probably be possible to use a Cow here
         self.variables
             .get(name.lexeme)
@@ -304,5 +309,14 @@ impl<'a> Environment<'a> {
                 ty: RuntimeErrorType::UndefinedVariable,
                 token: *name,
             })
+    }
+
+    fn set<'a>(&mut self, name: &TokenInfo<'a>, value: Value) -> Result<(), RuntimeError<'a>> {
+        let var = self.variables.get_mut(name.lexeme).ok_or(RuntimeError {
+            ty: RuntimeErrorType::UndefinedVariable,
+            token: *name,
+        })?;
+        *var = value;
+        Ok(())
     }
 }

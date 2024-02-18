@@ -11,7 +11,7 @@ print "one";
 print true;
 print 2 + 1;
 
-var number = "Hello, World!";
+number = "Hello, World!";
 print number;
 
 var undefined;
