@@ -164,6 +164,22 @@ impl Interpreter {
                 };
                 self.environment.define(name.lexeme.to_owned(), initializer);
             }
+            Stmt::Block(stmts) => {
+                let mut env = Environment::new();
+                std::mem::swap(&mut self.environment, &mut env);
+                self.environment.enclosing_env = Some(Box::new(env));
+
+                let result = self.eval(stmts);
+
+                let mut env = self
+                    .environment
+                    .enclosing_env
+                    .take()
+                    .expect("is local environment");
+                std::mem::swap(&mut self.environment, &mut env);
+
+                result?;
+            }
         }
         Ok(())
     }
@@ -286,12 +302,14 @@ impl Interpreter {
 
 #[derive(Debug)]
 struct Environment {
+    enclosing_env: Option<Box<Environment>>,
     variables: HashMap<String, Value>,
 }
 
 impl Environment {
     fn new() -> Self {
         Self {
+            enclosing_env: None,
             variables: HashMap::new(),
         }
     }
@@ -301,21 +319,41 @@ impl Environment {
     }
 
     fn get<'a>(&self, name: &TokenInfo<'a>) -> Result<Value, RuntimeError<'a>> {
-        // TODO: This clone is not optimal, it would probably be possible to use a Cow here
-        self.variables
-            .get(name.lexeme)
-            .cloned()
-            .ok_or(RuntimeError {
-                ty: RuntimeErrorType::UndefinedVariable,
-                token: *name,
-            })
+        let mut env = self;
+        loop {
+            if let Some(value) = env.variables.get(name.lexeme) {
+                // TODO: This clone is not optimal, it would probably be possible to use a Cow here
+                return Ok(value.clone());
+            }
+
+            if let Some(enclosing) = env.enclosing_env.as_deref() {
+                env = enclosing;
+            } else {
+                return Err(RuntimeError {
+                    ty: RuntimeErrorType::UndefinedVariable,
+                    token: *name,
+                });
+            }
+        }
     }
 
     fn set<'a>(&mut self, name: &TokenInfo<'a>, value: Value) -> Result<(), RuntimeError<'a>> {
-        let var = self.variables.get_mut(name.lexeme).ok_or(RuntimeError {
-            ty: RuntimeErrorType::UndefinedVariable,
-            token: *name,
-        })?;
+        let mut env = self;
+        let var = loop {
+            if let Some(var) = env.variables.get_mut(name.lexeme) {
+                break var;
+            }
+
+            if let Some(enclosing) = env.enclosing_env.as_deref_mut() {
+                env = enclosing;
+            } else {
+                return Err(RuntimeError {
+                    ty: RuntimeErrorType::UndefinedVariable,
+                    token: *name,
+                });
+            }
+        };
+
         *var = value;
         Ok(())
     }

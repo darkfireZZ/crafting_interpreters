@@ -14,6 +14,7 @@ pub enum Stmt<'a> {
     },
     Expr(Expr<'a>),
     Print(Expr<'a>),
+    Block(Vec<Stmt<'a>>),
 }
 
 #[derive(Debug)]
@@ -70,6 +71,7 @@ enum ParseErrorType {
     ExpectedExpression,
     ExpectedVariableName,
     InvalidAssignmentTarget,
+    UnterminatedBlock,
 }
 
 impl Display for ParseErrorType {
@@ -80,6 +82,7 @@ impl Display for ParseErrorType {
             Self::ExpectedExpression => write!(f, "Expected expression"),
             Self::ExpectedVariableName => write!(f, "Expected variable name"),
             Self::InvalidAssignmentTarget => write!(f, "Invalid assignment target"),
+            Self::UnterminatedBlock => write!(f, "Expected terminating '}}' after block"),
         }
     }
 }
@@ -159,6 +162,8 @@ impl<'a> Parser<'a> {
     fn parse_statement(&mut self) -> Result<Stmt<'a>, ParseError<'a>> {
         if self.matches(|token| token == Token::Print).is_some() {
             self.parse_print_statement()
+        } else if self.matches(|token| token == Token::LeftBrace).is_some() {
+            Ok(Stmt::Block(self.parse_block()?))
         } else {
             self.parse_expression_statement()
         }
@@ -168,6 +173,19 @@ impl<'a> Parser<'a> {
         let expr = self.parse_expression()?;
         self.try_consume(Token::Semicolon, ParseErrorType::MissingSemicolon)?;
         Ok(Stmt::Print(expr))
+    }
+
+    fn parse_block(&mut self) -> Result<Vec<Stmt<'a>>, ParseError<'a>> {
+        let mut stmts = Vec::new();
+        while self
+            .scanner
+            .peek()
+            .is_some_and(|token| token.token != Token::RightBrace)
+        {
+            stmts.push(self.parse_declaration()?);
+        }
+        self.try_consume(Token::RightBrace, ParseErrorType::UnterminatedBlock)?;
+        Ok(stmts)
     }
 
     fn parse_expression_statement(&mut self) -> Result<Stmt<'a>, ParseError<'a>> {
