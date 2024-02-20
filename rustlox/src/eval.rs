@@ -100,7 +100,7 @@ impl Value {
         }
     }
 
-    fn convert_to_boolean(&self) -> bool {
+    fn is_truthy(&self) -> bool {
         !matches!(self, Self::Nil | Self::Boolean(false))
     }
 
@@ -180,6 +180,17 @@ impl Interpreter {
 
                 result?;
             }
+            Stmt::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                if self.eval_expr(condition)?.is_truthy() {
+                    self.eval_stmt(then_branch)?;
+                } else if let Some(else_branch) = else_branch {
+                    self.eval_stmt(else_branch)?;
+                }
+            }
         }
         Ok(())
     }
@@ -225,7 +236,7 @@ impl Interpreter {
         let val = self.eval_expr(expr)?;
         Ok(match operator.token {
             Token::Minus => Value::Number(-val.convert_to_number(operator)?),
-            Token::Bang => Value::Boolean(!val.convert_to_boolean()),
+            Token::Bang => Value::Boolean(!val.is_truthy()),
             _ => panic!(
                 "Interpreter bug, tried to evaluate {} as unary operator",
                 operator

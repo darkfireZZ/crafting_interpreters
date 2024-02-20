@@ -15,6 +15,11 @@ pub enum Stmt<'a> {
     Expr(Expr<'a>),
     Print(Expr<'a>),
     Block(Vec<Stmt<'a>>),
+    If {
+        condition: Expr<'a>,
+        then_branch: Box<Stmt<'a>>,
+        else_branch: Option<Box<Stmt<'a>>>,
+    },
 }
 
 #[derive(Debug)]
@@ -66,7 +71,9 @@ impl<'a> Display for Expr<'a> {
 
 #[derive(Clone, Copy, Debug)]
 enum ParseErrorType {
+    MissingLeftParenAfterIf,
     MissingRightParen,
+    MissingRightParenAfterCondition,
     MissingSemicolon,
     ExpectedExpression,
     ExpectedVariableName,
@@ -77,7 +84,14 @@ enum ParseErrorType {
 impl Display for ParseErrorType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            Self::MissingLeftParenAfterIf => {
+                write!(f, "Missing left parenthesis after if statement")
+            }
             Self::MissingRightParen => write!(f, "Missing right parenthesis"),
+            Self::MissingRightParenAfterCondition => write!(
+                f,
+                "Missing right parenthesis after condition in if statement"
+            ),
             Self::MissingSemicolon => write!(f, "Missing semicolon"),
             Self::ExpectedExpression => write!(f, "Expected expression"),
             Self::ExpectedVariableName => write!(f, "Expected variable name"),
@@ -164,6 +178,8 @@ impl<'a> Parser<'a> {
             self.parse_print_statement()
         } else if self.matches(|token| token == Token::LeftBrace).is_some() {
             Ok(Stmt::Block(self.parse_block()?))
+        } else if self.matches(|token| token == Token::If).is_some() {
+            self.parse_if_statement()
         } else {
             self.parse_expression_statement()
         }
@@ -186,6 +202,27 @@ impl<'a> Parser<'a> {
         }
         self.try_consume(Token::RightBrace, ParseErrorType::UnterminatedBlock)?;
         Ok(stmts)
+    }
+
+    fn parse_if_statement(&mut self) -> Result<Stmt<'a>, ParseError<'a>> {
+        self.try_consume(Token::LeftParen, ParseErrorType::MissingLeftParenAfterIf)?;
+        let condition = self.parse_expression()?;
+        self.try_consume(
+            Token::RightParen,
+            ParseErrorType::MissingRightParenAfterCondition,
+        )?;
+        let then_stmt = self.parse_statement()?;
+        let else_stmt = if self.matches(|token| token == Token::Else).is_some() {
+            Some(self.parse_statement()?)
+        } else {
+            None
+        };
+
+        Ok(Stmt::If {
+            condition,
+            then_branch: Box::new(then_stmt),
+            else_branch: else_stmt.map(Box::new),
+        })
     }
 
     fn parse_expression_statement(&mut self) -> Result<Stmt<'a>, ParseError<'a>> {
