@@ -20,6 +20,10 @@ pub enum Stmt<'a> {
         then_branch: Box<Stmt<'a>>,
         else_branch: Option<Box<Stmt<'a>>>,
     },
+    While {
+        condition: Expr<'a>,
+        body: Box<Stmt<'a>>,
+    },
 }
 
 #[derive(Debug)]
@@ -64,11 +68,12 @@ impl<'a> Display for Expr<'a> {
                 operator,
                 left,
                 right,
-            } | Self::Logical {
+            }
+            | Self::Logical {
                 operator,
                 left,
                 right,
-            }=> {
+            } => {
                 write!(f, "({} {} {})", operator.lexeme, left, right)
             }
             Self::Grouping { expr } => write!(f, "{}", expr),
@@ -80,9 +85,9 @@ impl<'a> Display for Expr<'a> {
 
 #[derive(Clone, Copy, Debug)]
 enum ParseErrorType {
-    MissingLeftParenAfterIf,
+    MissingParenBeforeCondition,
+    MissingParenAfterCondition,
     MissingRightParen,
-    MissingRightParenAfterCondition,
     MissingSemicolon,
     ExpectedExpression,
     ExpectedVariableName,
@@ -93,14 +98,9 @@ enum ParseErrorType {
 impl Display for ParseErrorType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::MissingLeftParenAfterIf => {
-                write!(f, "Missing left parenthesis after if statement")
-            }
+            Self::MissingParenBeforeCondition => write!(f, "Expected '(' before condition"),
+            Self::MissingParenAfterCondition => write!(f, "Expected ')' after condition"),
             Self::MissingRightParen => write!(f, "Missing right parenthesis"),
-            Self::MissingRightParenAfterCondition => write!(
-                f,
-                "Missing right parenthesis after condition in if statement"
-            ),
             Self::MissingSemicolon => write!(f, "Missing semicolon"),
             Self::ExpectedExpression => write!(f, "Expected expression"),
             Self::ExpectedVariableName => write!(f, "Expected variable name"),
@@ -189,6 +189,8 @@ impl<'a> Parser<'a> {
             Ok(Stmt::Block(self.parse_block()?))
         } else if self.matches(|token| token == Token::If).is_some() {
             self.parse_if_statement()
+        } else if self.matches(|token| token == Token::While).is_some() {
+            self.parse_while_statement()
         } else {
             self.parse_expression_statement()
         }
@@ -214,11 +216,14 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_if_statement(&mut self) -> Result<Stmt<'a>, ParseError<'a>> {
-        self.try_consume(Token::LeftParen, ParseErrorType::MissingLeftParenAfterIf)?;
+        self.try_consume(
+            Token::LeftParen,
+            ParseErrorType::MissingParenBeforeCondition,
+        )?;
         let condition = self.parse_expression()?;
         self.try_consume(
             Token::RightParen,
-            ParseErrorType::MissingRightParenAfterCondition,
+            ParseErrorType::MissingParenAfterCondition,
         )?;
         let then_stmt = self.parse_statement()?;
         let else_stmt = if self.matches(|token| token == Token::Else).is_some() {
@@ -231,6 +236,24 @@ impl<'a> Parser<'a> {
             condition,
             then_branch: Box::new(then_stmt),
             else_branch: else_stmt.map(Box::new),
+        })
+    }
+
+    fn parse_while_statement(&mut self) -> Result<Stmt<'a>, ParseError<'a>> {
+        self.try_consume(
+            Token::LeftParen,
+            ParseErrorType::MissingParenBeforeCondition,
+        )?;
+        let condition = self.parse_expression()?;
+        self.try_consume(
+            Token::RightParen,
+            ParseErrorType::MissingParenAfterCondition,
+        )?;
+        let body = self.parse_statement()?;
+
+        Ok(Stmt::While {
+            condition,
+            body: Box::new(body),
         })
     }
 

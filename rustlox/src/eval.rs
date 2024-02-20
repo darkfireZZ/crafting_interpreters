@@ -191,6 +191,11 @@ impl Interpreter {
                     self.eval_stmt(else_branch)?;
                 }
             }
+            Stmt::While { condition, body } => {
+                while self.eval_expr(condition)?.is_truthy() {
+                    self.eval_stmt(body)?;
+                }
+            }
         }
         Ok(())
     }
@@ -323,8 +328,16 @@ impl Interpreter {
     ) -> Result<Value, RuntimeError<'a>> {
         let left = self.eval_expr(left)?;
         match operator.token {
-            Token::And => if !left.is_truthy() { return Ok(left); },
-            Token::Or => if left.is_truthy() { return Ok(left); },
+            Token::And => {
+                if !left.is_truthy() {
+                    return Ok(left);
+                }
+            }
+            Token::Or => {
+                if left.is_truthy() {
+                    return Ok(left);
+                }
+            }
             _ => panic!(
                 "Interpreter bug, tried to evaluate {} as logical operator",
                 operator
