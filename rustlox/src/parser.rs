@@ -1,5 +1,8 @@
 use {
-    crate::scanner::{Scanner, Token, TokenInfo},
+    crate::{
+        eval::Value,
+        scanner::{Scanner, Token, TokenInfo},
+    },
     std::{
         fmt::{self, Display},
         iter::Peekable,
@@ -28,9 +31,7 @@ pub enum Stmt<'a> {
 
 #[derive(Debug)]
 pub enum Expr<'a> {
-    Literal {
-        literal: TokenInfo<'a>,
-    },
+    Literal(Value),
     Unary {
         operator: TokenInfo<'a>,
         expr: Box<Expr<'a>>,
@@ -45,9 +46,7 @@ pub enum Expr<'a> {
         left: Box<Expr<'a>>,
         right: Box<Expr<'a>>,
     },
-    Grouping {
-        expr: Box<Expr<'a>>,
-    },
+    Grouping(Box<Expr<'a>>),
     Variable {
         name: TokenInfo<'a>,
     },
@@ -60,7 +59,7 @@ pub enum Expr<'a> {
 impl<'a> Display for Expr<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::Literal { literal } => literal.lexeme.fmt(f),
+            Self::Literal(literal) => literal.fmt(f),
             Self::Unary { operator, expr } => {
                 write!(f, "({} {})", operator.lexeme, expr)
             }
@@ -76,7 +75,7 @@ impl<'a> Display for Expr<'a> {
             } => {
                 write!(f, "({} {} {})", operator.lexeme, left, right)
             }
-            Self::Grouping { expr } => write!(f, "{}", expr),
+            Self::Grouping(expr) => write!(f, "{}", expr),
             Self::Variable { name } => write!(f, "{}", name.lexeme),
             Self::Assignment { name, value } => write!(f, "{} <- {}", name, value),
         }
@@ -85,26 +84,30 @@ impl<'a> Display for Expr<'a> {
 
 #[derive(Clone, Copy, Debug)]
 enum ParseErrorType {
-    MissingParenBeforeCondition,
-    MissingParenAfterCondition,
-    MissingRightParen,
+    MissingOpeningParenInControlFlowStmt,
+    MissingClosingParenInControlFlowStmt,
     MissingSemicolon,
     ExpectedExpression,
     ExpectedVariableName,
     InvalidAssignmentTarget,
+    UnclosedGrouping,
     UnterminatedBlock,
 }
 
 impl Display for ParseErrorType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::MissingParenBeforeCondition => write!(f, "Expected '(' before condition"),
-            Self::MissingParenAfterCondition => write!(f, "Expected ')' after condition"),
-            Self::MissingRightParen => write!(f, "Missing right parenthesis"),
+            Self::MissingOpeningParenInControlFlowStmt => {
+                write!(f, "Missing '(' in control flow statement")
+            }
+            Self::MissingClosingParenInControlFlowStmt => {
+                write!(f, "Missing ')' in control flow statement")
+            }
             Self::MissingSemicolon => write!(f, "Missing semicolon"),
             Self::ExpectedExpression => write!(f, "Expected expression"),
             Self::ExpectedVariableName => write!(f, "Expected variable name"),
             Self::InvalidAssignmentTarget => write!(f, "Invalid assignment target"),
+            Self::UnclosedGrouping => write!(f, "Missing ')', unclosed grouping"),
             Self::UnterminatedBlock => write!(f, "Expected terminating '}}' after block"),
         }
     }
@@ -191,6 +194,8 @@ impl<'a> Parser<'a> {
             self.parse_if_statement()
         } else if self.matches(|token| token == Token::While).is_some() {
             self.parse_while_statement()
+        } else if self.matches(|token| token == Token::For).is_some() {
+            self.parse_for_statement()
         } else {
             self.parse_expression_statement()
         }
@@ -218,12 +223,12 @@ impl<'a> Parser<'a> {
     fn parse_if_statement(&mut self) -> Result<Stmt<'a>, ParseError<'a>> {
         self.try_consume(
             Token::LeftParen,
-            ParseErrorType::MissingParenBeforeCondition,
+            ParseErrorType::MissingOpeningParenInControlFlowStmt,
         )?;
         let condition = self.parse_expression()?;
         self.try_consume(
             Token::RightParen,
-            ParseErrorType::MissingParenAfterCondition,
+            ParseErrorType::MissingClosingParenInControlFlowStmt,
         )?;
         let then_stmt = self.parse_statement()?;
         let else_stmt = if self.matches(|token| token == Token::Else).is_some() {
@@ -242,18 +247,74 @@ impl<'a> Parser<'a> {
     fn parse_while_statement(&mut self) -> Result<Stmt<'a>, ParseError<'a>> {
         self.try_consume(
             Token::LeftParen,
-            ParseErrorType::MissingParenBeforeCondition,
+            ParseErrorType::MissingOpeningParenInControlFlowStmt,
         )?;
         let condition = self.parse_expression()?;
         self.try_consume(
             Token::RightParen,
-            ParseErrorType::MissingParenAfterCondition,
+            ParseErrorType::MissingClosingParenInControlFlowStmt,
         )?;
         let body = self.parse_statement()?;
 
         Ok(Stmt::While {
             condition,
             body: Box::new(body),
+        })
+    }
+
+    fn parse_for_statement(&mut self) -> Result<Stmt<'a>, ParseError<'a>> {
+        self.try_consume(
+            Token::LeftParen,
+            ParseErrorType::MissingOpeningParenInControlFlowStmt,
+        )?;
+        let initializer = if self.matches(|token| token == Token::Semicolon).is_some() {
+            None
+        } else if self.matches(|token| token == Token::Var).is_some() {
+            Some(self.parse_variable_declaration()?)
+        } else {
+            Some(self.parse_expression_statement()?)
+        };
+        let condition = if self
+            .scanner
+            .peek()
+            .is_some_and(|token| token.token == Token::Semicolon)
+        {
+            Expr::Literal(Value::Boolean(true))
+        } else {
+            self.parse_expression()?
+        };
+        self.try_consume(Token::Semicolon, ParseErrorType::MissingSemicolon)?;
+        let increment = if self
+            .scanner
+            .peek()
+            .is_some_and(|token| token.token != Token::RightParen)
+        {
+            Some(self.parse_expression()?)
+        } else {
+            None
+        };
+        self.try_consume(
+            Token::RightParen,
+            ParseErrorType::MissingClosingParenInControlFlowStmt,
+        )?;
+
+        let body = self.parse_statement()?;
+
+        let body = if let Some(increment) = increment {
+            Stmt::Block(vec![body, Stmt::Expr(increment)])
+        } else {
+            body
+        };
+
+        let while_loop = Stmt::While {
+            condition,
+            body: Box::new(body),
+        };
+
+        Ok(if let Some(initializer) = initializer {
+            Stmt::Block(vec![initializer, while_loop])
+        } else {
+            while_loop
         })
     }
 
@@ -407,28 +468,31 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_primary(&mut self) -> Result<Expr<'a>, ParseError<'a>> {
-        let next_token = self.scanner.peek();
-        match next_token.map(|token| token.token) {
-            Some(Token::False | Token::True | Token::Nil | Token::String | Token::Number(_)) => {
-                Ok(Expr::Literal {
-                    literal: self.scanner.next().unwrap(),
-                })
-            }
-            Some(Token::LeftParen) => {
-                self.scanner.next();
-                let expr = self.parse_expression()?;
-                self.try_consume(Token::RightParen, ParseErrorType::MissingRightParen)?;
-                Ok(Expr::Grouping {
-                    expr: Box::new(expr),
-                })
-            }
-            Some(Token::Identifier) => Ok(Expr::Variable {
-                name: self.scanner.next().unwrap(),
-            }),
-            _ => Err(ParseError {
+        if self.matches(|token| token == Token::Nil).is_some() {
+            Ok(Expr::Literal(Value::Nil))
+        } else if self.matches(|token| token == Token::True).is_some() {
+            Ok(Expr::Literal(Value::Boolean(true)))
+        } else if self.matches(|token| token == Token::False).is_some() {
+            Ok(Expr::Literal(Value::Boolean(false)))
+        } else if let Some(token) = self.matches(|token| token == Token::Number) {
+            Ok(Expr::Literal(Value::Number(token.lexeme.parse().expect(
+                "scanner only produces lexemes that can be parsed as a f64",
+            ))))
+        } else if let Some(token) = self.matches(|token| token == Token::String) {
+            Ok(Expr::Literal(Value::String(
+                token.lexeme[1..token.lexeme.len() - 1].to_owned(),
+            )))
+        } else if self.matches(|token| token == Token::LeftParen).is_some() {
+            let expr = self.parse_expression()?;
+            self.try_consume(Token::RightParen, ParseErrorType::UnclosedGrouping)?;
+            Ok(Expr::Grouping(Box::new(expr)))
+        } else if let Some(token) = self.matches(|token| token == Token::Identifier) {
+            Ok(Expr::Variable { name: token })
+        } else {
+            Err(ParseError {
                 ty: ParseErrorType::ExpectedExpression,
-                token: next_token.copied(),
-            }),
+                token: self.scanner.peek().copied(),
+            })
         }
     }
 

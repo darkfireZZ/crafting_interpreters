@@ -31,7 +31,7 @@ pub enum Token {
     // Literals
     Identifier,
     String,
-    Number(f64),
+    Number,
 
     // Keywords
     And,
@@ -168,11 +168,7 @@ impl<'a> Scanner<'a> {
             None => self.source.len(),
         };
 
-        let number_value = self.source[..end_index]
-            .parse()
-            .expect("valid f64 string representation");
-
-        self.consume(Token::Number(number_value), end_index)
+        self.consume(Token::Number, end_index)
     }
 
     fn consume_identifier_or_keyword(&mut self) -> TokenInfo<'a> {

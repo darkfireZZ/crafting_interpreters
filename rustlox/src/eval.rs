@@ -202,7 +202,7 @@ impl Interpreter {
 
     fn eval_expr<'a>(&mut self, expr: &Expr<'a>) -> Result<Value, RuntimeError<'a>> {
         match expr {
-            Expr::Literal { literal } => Ok(self.eval_literal(literal)),
+            Expr::Literal(value) => Ok(value.clone()),
             Expr::Unary { operator, expr } => self.eval_unary(operator, expr),
             Expr::Binary {
                 operator,
@@ -214,27 +214,13 @@ impl Interpreter {
                 left,
                 right,
             } => self.eval_logical(operator, left, right),
-            Expr::Grouping { expr } => self.eval_expr(expr),
+            Expr::Grouping(expr) => self.eval_expr(expr),
             Expr::Variable { name } => self.environment.get(name),
             Expr::Assignment { name, value } => {
                 let value = self.eval_expr(value)?;
                 self.environment.set(name, value.clone())?;
                 Ok(value)
             }
-        }
-    }
-
-    fn eval_literal(&mut self, literal: &TokenInfo) -> Value {
-        match literal.token {
-            Token::Nil => Value::Nil,
-            Token::True => Value::Boolean(true),
-            Token::False => Value::Boolean(false),
-            Token::Number(val) => Value::Number(val),
-            Token::String => Value::String(literal.lexeme[1..literal.lexeme.len() - 1].to_owned()),
-            _ => panic!(
-                "Interpreter bug, tried to evaluate {} as a literal",
-                literal
-            ),
         }
     }
 

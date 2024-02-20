@@ -1,10 +1,7 @@
 
 print "Counting to 10...";
 
-var counter = 0;
-while (counter < 10) {
+for (var counter = 0; counter < 10; counter = counter + 1)
     print counter;
-    counter = counter + 1;
-}
 
 print "Counted to 10!";
