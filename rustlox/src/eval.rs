@@ -204,6 +204,11 @@ impl Interpreter {
                 left,
                 right,
             } => self.eval_binary(operator, left, right),
+            Expr::Logical {
+                operator,
+                left,
+                right,
+            } => self.eval_logical(operator, left, right),
             Expr::Grouping { expr } => self.eval_expr(expr),
             Expr::Variable { name } => self.environment.get(name),
             Expr::Assignment { name, value } => {
@@ -308,6 +313,25 @@ impl Interpreter {
                 operator
             ),
         })
+    }
+
+    fn eval_logical<'a>(
+        &mut self,
+        operator: &TokenInfo<'a>,
+        left: &Expr<'a>,
+        right: &Expr<'a>,
+    ) -> Result<Value, RuntimeError<'a>> {
+        let left = self.eval_expr(left)?;
+        match operator.token {
+            Token::And => if !left.is_truthy() { return Ok(left); },
+            Token::Or => if left.is_truthy() { return Ok(left); },
+            _ => panic!(
+                "Interpreter bug, tried to evaluate {} as logical operator",
+                operator
+            ),
+        }
+
+        self.eval_expr(right)
     }
 }
 

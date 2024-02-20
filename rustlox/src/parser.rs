@@ -36,6 +36,11 @@ pub enum Expr<'a> {
         left: Box<Expr<'a>>,
         right: Box<Expr<'a>>,
     },
+    Logical {
+        operator: TokenInfo<'a>,
+        left: Box<Expr<'a>>,
+        right: Box<Expr<'a>>,
+    },
     Grouping {
         expr: Box<Expr<'a>>,
     },
@@ -59,7 +64,11 @@ impl<'a> Display for Expr<'a> {
                 operator,
                 left,
                 right,
-            } => {
+            } | Self::Logical {
+                operator,
+                left,
+                right,
+            }=> {
                 write!(f, "({} {} {})", operator.lexeme, left, right)
             }
             Self::Grouping { expr } => write!(f, "{}", expr),
@@ -236,7 +245,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_assignment(&mut self) -> Result<Expr<'a>, ParseError<'a>> {
-        let left = self.parse_equality()?;
+        let left = self.parse_or()?;
 
         match self.matches(|token| token == Token::Equal) {
             Some(equal) => {
@@ -255,6 +264,36 @@ impl<'a> Parser<'a> {
             }
             None => Ok(left),
         }
+    }
+
+    fn parse_or(&mut self) -> Result<Expr<'a>, ParseError<'a>> {
+        let mut left = self.parse_and()?;
+
+        while let Some(or_token) = self.matches(|token| token == Token::Or) {
+            let right = self.parse_and()?;
+            left = Expr::Logical {
+                operator: or_token,
+                left: Box::new(left),
+                right: Box::new(right),
+            };
+        }
+
+        Ok(left)
+    }
+
+    fn parse_and(&mut self) -> Result<Expr<'a>, ParseError<'a>> {
+        let mut left = self.parse_equality()?;
+
+        while let Some(and_token) = self.matches(|token| token == Token::And) {
+            let right = self.parse_equality()?;
+            left = Expr::Logical {
+                operator: and_token,
+                left: Box::new(left),
+                right: Box::new(right),
+            };
+        }
+
+        Ok(left)
     }
 
     fn parse_equality(&mut self) -> Result<Expr<'a>, ParseError<'a>> {

@@ -1,9 +1,5 @@
+print "hi" or 2; // "hi".
+print nil or "yes"; // "yes".
 
-var test = "2";
-
-if (test == "1")
-    print 1;
-else if (test == "2")
-    print 2;
-else
-    print "other";
+print "hi" and 2; // "2".
+print nil and "yes"; // "nil".
