@@ -1,18 +1,13 @@
+fun makeCounter() {
+  var i = 0;
+  fun count() {
+    i = i + 1;
+    print i;
+  }
 
-var start_time = clock();
-
-fun fib(n) {
-  if (n <= 1) return n;
-  return fib(n - 2) + fib(n - 1);
+  return count;
 }
 
-for (var i = 0; i < 25; i = i + 1) {
-  print fib(i);
-}
-
-var end_time = clock();
-var elapsed = end_time - start_time;
-
-print "";
-print "Time taken:";
-print elapsed;
+var counter = makeCounter();
+counter(); // "1".
+counter(); // "2".

@@ -156,7 +156,6 @@ impl Display for Value {
 
 #[derive(Debug)]
 pub struct Interpreter {
-    globals: Rc<RefCell<Environment>>,
     current_env: Rc<RefCell<Environment>>,
 }
 
@@ -167,10 +166,8 @@ impl Interpreter {
             String::from("clock"),
             Value::BuiltInFunction(BuiltInFunction::Clock),
         )]);
-        let globals = Rc::new(RefCell::new(Environment::new_global(globals)));
         Self {
-            current_env: Rc::clone(&globals),
-            globals,
+            current_env: Rc::new(RefCell::new(Environment::new_global(globals))),
         }
     }
 
@@ -209,6 +206,7 @@ impl Interpreter {
                     name: name.clone(),
                     parameters: parameters.to_vec(),
                     body: body.to_vec(),
+                    closure: Rc::clone(&self.current_env),
                 }));
                 self.current_env
                     .borrow_mut()
@@ -492,6 +490,7 @@ pub struct LoxFunction {
     name: TokenInfo,
     parameters: Vec<TokenInfo>,
     body: Vec<Stmt>,
+    closure: Rc<RefCell<Environment>>,
 }
 
 impl PartialEq for LoxFunction {
@@ -522,7 +521,7 @@ impl Callable for LoxFunction {
 
         let mut function_env = Rc::new(RefCell::new(Environment {
             variables: arguments,
-            enclosing_env: Some(Rc::clone(&interpreter.globals)),
+            enclosing_env: Some(Rc::clone(&self.closure)),
         }));
 
         std::mem::swap(&mut interpreter.current_env, &mut function_env);
