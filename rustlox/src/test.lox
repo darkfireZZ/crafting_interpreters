@@ -1,7 +1,18 @@
 
-print "Counting to 10...";
+var start_time = clock();
 
-for (var counter = 0; counter < 10; counter = counter + 1)
-    print counter;
+var sum = 0;
+for (var outer = 0; outer < 20; outer = outer + 1) {
+    for (var inner = 0; inner < 10000; inner = inner + 1) {
+        sum = sum + 1;
+    }
+    print sum;
+}
 
-print "Counted to 10!";
+var stop_time = clock();
+
+var time_diff = stop_time - start_time;
+
+print "Time taken to execute:";
+print time_diff;
+

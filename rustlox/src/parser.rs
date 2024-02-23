@@ -54,42 +54,24 @@ pub enum Expr<'a> {
         name: TokenInfo<'a>,
         value: Box<Expr<'a>>,
     },
-}
-
-impl<'a> Display for Expr<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::Literal(literal) => literal.fmt(f),
-            Self::Unary { operator, expr } => {
-                write!(f, "({} {})", operator.lexeme, expr)
-            }
-            Self::Binary {
-                operator,
-                left,
-                right,
-            }
-            | Self::Logical {
-                operator,
-                left,
-                right,
-            } => {
-                write!(f, "({} {} {})", operator.lexeme, left, right)
-            }
-            Self::Grouping(expr) => write!(f, "{}", expr),
-            Self::Variable { name } => write!(f, "{}", name.lexeme),
-            Self::Assignment { name, value } => write!(f, "{} <- {}", name, value),
-        }
-    }
+    FunctionCall {
+        callee: Box<Expr<'a>>,
+        arguments: Vec<Expr<'a>>,
+        opening_paren: TokenInfo<'a>,
+        closing_paren: TokenInfo<'a>,
+    },
 }
 
 #[derive(Clone, Copy, Debug)]
 enum ParseErrorType {
     MissingOpeningParenInControlFlowStmt,
     MissingClosingParenInControlFlowStmt,
+    MissingParenAfterFunctionArgs,
     MissingSemicolon,
     ExpectedExpression,
     ExpectedVariableName,
     InvalidAssignmentTarget,
+    TooManyFunctionArguments,
     UnclosedGrouping,
     UnterminatedBlock,
 }
@@ -103,10 +85,12 @@ impl Display for ParseErrorType {
             Self::MissingClosingParenInControlFlowStmt => {
                 write!(f, "Missing ')' in control flow statement")
             }
+            Self::MissingParenAfterFunctionArgs => write!(f, "Expected ')' after function arguments"),
             Self::MissingSemicolon => write!(f, "Missing semicolon"),
             Self::ExpectedExpression => write!(f, "Expected expression"),
             Self::ExpectedVariableName => write!(f, "Expected variable name"),
             Self::InvalidAssignmentTarget => write!(f, "Invalid assignment target"),
+            Self::TooManyFunctionArguments => write!(f, "Functions may have at most 255 arguments"),
             Self::UnclosedGrouping => write!(f, "Missing ')', unclosed grouping"),
             Self::UnterminatedBlock => write!(f, "Expected terminating '}}' after block"),
         }
@@ -463,7 +447,38 @@ impl<'a> Parser<'a> {
                 expr: Box::new(self.parse_unary()?),
             })
         } else {
-            self.parse_primary()
+            self.parse_function_call()
+        }
+    }
+
+    fn parse_function_call(&mut self) -> Result<Expr<'a>, ParseError<'a>> {
+        let mut expr = self.parse_primary()?;
+        while let Some(opening_paren) = self.matches(|token| token == Token::LeftParen) {
+            expr = self.parse_function_arguments(opening_paren, expr)?;
+        }
+        Ok(expr)
+    }
+
+    fn parse_function_arguments(&mut self, opening_paren: TokenInfo<'a>, callee: Expr<'a>) -> Result<Expr<'a>, ParseError<'a>> {
+        let mut arguments = Vec::new();
+        if self.scanner.peek().filter(|token| token.token == Token::RightParen).is_none() {
+            loop {
+                arguments.push(self.parse_expression()?);
+                if self.matches(|token| token == Token::Comma).is_none() {
+                    break;
+                }
+            }
+        }
+
+        let closing_paren = self.try_consume(Token::RightParen, ParseErrorType::MissingParenAfterFunctionArgs)?;
+
+        if arguments.len() < 255 {
+            Ok(Expr::FunctionCall { callee: Box::new(callee), arguments, opening_paren, closing_paren })
+        } else {
+            Err(ParseError {
+                ty: ParseErrorType::TooManyFunctionArguments,
+                token: Some(closing_paren),
+            })
         }
     }
 

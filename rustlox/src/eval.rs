@@ -6,6 +6,7 @@ use {
     std::{
         collections::HashMap,
         fmt::{self, Display},
+        time::{SystemTime, UNIX_EPOCH},
     },
 };
 
@@ -29,6 +30,11 @@ enum RuntimeErrorType {
         expected: Vec<ValueType>,
         actual: ValueType,
     },
+    IncorrectArgumentCount {
+        expected: u8,
+        actual: u8
+    },
+    TypeNotCallable(ValueType),
     UndefinedVariable,
 }
 
@@ -52,6 +58,8 @@ impl Display for RuntimeErrorType {
                     )
                 }
             },
+            Self::IncorrectArgumentCount { expected, actual } => write!(f, "Expected {expected} arguments, but got {actual}"),
+            Self::TypeNotCallable(ty) => write!(f, "{ty} is not callable"),
             Self::UndefinedVariable => write!(f, "Undefined variable"),
         }
     }
@@ -63,6 +71,7 @@ enum ValueType {
     Boolean,
     Number,
     String,
+    BuiltInFunction,
 }
 
 impl ValueType {
@@ -72,6 +81,7 @@ impl ValueType {
             Self::Boolean => "boolean",
             Self::Number => "number",
             Self::String => "string",
+            Self::BuiltInFunction => "built-in function",
         }
     }
 }
@@ -88,6 +98,7 @@ pub enum Value {
     Boolean(bool),
     Number(f64),
     String(String),
+    BuiltInFunction(BuiltInFunction),
 }
 
 impl Value {
@@ -97,6 +108,7 @@ impl Value {
             Self::Boolean(_) => ValueType::Boolean,
             Self::Number(_) => ValueType::Number,
             Self::String(_) => ValueType::String,
+            Self::BuiltInFunction(_) => ValueType::BuiltInFunction,
         }
     }
 
@@ -125,19 +137,24 @@ impl Display for Value {
             Self::Boolean(val) => val.fmt(f),
             Self::Number(val) => val.fmt(f),
             Self::String(val) => val.fmt(f),
+            Self::BuiltInFunction(function) => write!(f, "<built-in function \"{}\">", function),
         }
     }
 }
 
 #[derive(Debug)]
 pub struct Interpreter {
-    environment: Environment,
+    environments: Vec<HashMap<String, Value>>,
 }
 
 impl Interpreter {
     pub fn new() -> Self {
+        // TODO: ideally this should be put in a macro
+        let globals = [
+            (String::from("clock"), Value::BuiltInFunction(BuiltInFunction::Clock)),
+        ];
         Self {
-            environment: Environment::new(),
+            environments: vec![HashMap::from(globals)],
         }
     }
 
@@ -162,22 +179,12 @@ impl Interpreter {
                     Some(expr) => self.eval_expr(expr)?,
                     None => Value::Nil,
                 };
-                self.environment.define(name.lexeme.to_owned(), initializer);
+                self.define_variable(name.lexeme.to_owned(), initializer);
             }
             Stmt::Block(stmts) => {
-                let mut env = Environment::new();
-                std::mem::swap(&mut self.environment, &mut env);
-                self.environment.enclosing_env = Some(Box::new(env));
-
+                self.environments.push(HashMap::new());
                 let result = self.eval(stmts);
-
-                let mut env = self
-                    .environment
-                    .enclosing_env
-                    .take()
-                    .expect("is local environment");
-                std::mem::swap(&mut self.environment, &mut env);
-
+                self.environments.pop().expect("is local environment");
                 result?;
             }
             Stmt::If {
@@ -215,12 +222,13 @@ impl Interpreter {
                 right,
             } => self.eval_logical(operator, left, right),
             Expr::Grouping(expr) => self.eval_expr(expr),
-            Expr::Variable { name } => self.environment.get(name),
+            Expr::Variable { name } => self.get_variable(name),
             Expr::Assignment { name, value } => {
                 let value = self.eval_expr(value)?;
-                self.environment.set(name, value.clone())?;
+                self.set_variable(name, value.clone())?;
                 Ok(value)
             }
+            Expr::FunctionCall { callee, arguments, opening_paren, .. } => self.eval_function_call(callee, arguments, *opening_paren)
         }
     }
 
@@ -332,63 +340,89 @@ impl Interpreter {
 
         self.eval_expr(right)
     }
-}
 
-#[derive(Debug)]
-struct Environment {
-    enclosing_env: Option<Box<Environment>>,
-    variables: HashMap<String, Value>,
-}
+    fn eval_function_call<'a>(&mut self, callee: &Expr<'a>, arguments: &[Expr<'a>], opening_paren: TokenInfo<'a>) -> Result<Value, RuntimeError<'a>> {
+        let callee = self.eval_expr(callee)?;
+        let arguments: Vec<_> = arguments.iter().map(|arg| self.eval_expr(arg)).collect::<Result<_, _>>()?;
 
-impl Environment {
-    fn new() -> Self {
-        Self {
-            enclosing_env: None,
-            variables: HashMap::new(),
+        match callee {
+            Value::BuiltInFunction(function) => self.call_function(function, arguments, opening_paren),
+            _ => Err(RuntimeError {
+                ty: RuntimeErrorType::TypeNotCallable(callee.value_type()),
+                token: opening_paren,
+            })
         }
     }
 
-    fn define(&mut self, name: String, value: Value) {
-        self.variables.insert(name, value);
-    }
-
-    fn get<'a>(&self, name: &TokenInfo<'a>) -> Result<Value, RuntimeError<'a>> {
-        let mut env = self;
-        loop {
-            if let Some(value) = env.variables.get(name.lexeme) {
-                // TODO: This clone is not optimal, it would probably be possible to use a Cow here
-                return Ok(value.clone());
-            }
-
-            if let Some(enclosing) = env.enclosing_env.as_deref() {
-                env = enclosing;
-            } else {
-                return Err(RuntimeError {
-                    ty: RuntimeErrorType::UndefinedVariable,
-                    token: *name,
-                });
-            }
+    fn call_function<'a, F: Callable>(&mut self, callee: F, arguments: Vec<Value>, opening_paren: TokenInfo<'a>) -> Result<Value, RuntimeError<'a>> {
+        let num_args = u8::try_from(arguments.len()).expect("parser allows no more than 255 arguments");
+        let arity = callee.arity();
+        if num_args == arity {
+            callee.call(self, arguments)
+        } else {
+            Err(RuntimeError {
+                ty: RuntimeErrorType::IncorrectArgumentCount { expected: arity, actual: num_args },
+                token: opening_paren,
+            })
         }
     }
 
-    fn set<'a>(&mut self, name: &TokenInfo<'a>, value: Value) -> Result<(), RuntimeError<'a>> {
-        let mut env = self;
-        let var = loop {
-            if let Some(var) = env.variables.get_mut(name.lexeme) {
-                break var;
-            }
+    fn define_variable(&mut self, name: String, value: Value) {
+        let last_index = self.environments.len() - 1;
+        self.environments.get_mut(last_index).expect("global environment is always defined").insert(name, value);
+    }
 
-            if let Some(enclosing) = env.enclosing_env.as_deref_mut() {
-                env = enclosing;
-            } else {
-                return Err(RuntimeError {
-                    ty: RuntimeErrorType::UndefinedVariable,
-                    token: *name,
-                });
+    fn get_variable<'a>(&self, name: &TokenInfo<'a>) -> Result<Value, RuntimeError<'a>> {
+        // TODO: Cloning is not optimal, it would probably be possible to use a Cow here
+        self.environments.iter().rev().find_map(|env| env.get(name.lexeme)).cloned().ok_or(
+            RuntimeError {
+                ty: RuntimeErrorType::UndefinedVariable,
+                token: *name,
             }
-        };
+        )
+    }
 
-        *var = value;
+    fn set_variable<'a>(&mut self, name: &TokenInfo<'a>, value: Value) -> Result<(), RuntimeError<'a>> {
+        let variable_ref = self.environments.iter_mut().rev().find_map(|env| env.get_mut(name.lexeme)).ok_or(RuntimeError {
+            ty: RuntimeErrorType::UndefinedVariable,
+            token: *name,
+        })?;
+        *variable_ref = value;
         Ok(())
+    }
+}
+
+trait Callable {
+    fn arity(&self) -> u8;
+    fn call(&self, interpreter: &mut Interpreter, arguments: Vec<Value>) -> Result<Value, RuntimeError<'static>>;
+}
+
+#[derive(Clone, Copy, Eq, PartialEq, Debug)]
+pub enum BuiltInFunction {
+    Clock,
+}
+
+impl Callable for BuiltInFunction {
+    fn arity(&self) -> u8 {
+        match self {
+            Self::Clock => 0,
+        }
+    }
+
+    fn call(&self, _interpreter: &mut Interpreter, _arguments: Vec<Value>) -> Result<Value, RuntimeError<'static>> {
+        match self {
+            Self::Clock => {
+                let elapsed_secs = SystemTime::now().duration_since(UNIX_EPOCH).expect("the UNIX epoch will always be earlier than now").as_millis() as f64 / 1000.0;
+                Ok(Value::Number(elapsed_secs))
+            },
+        }
+    }
+}
+
+impl Display for BuiltInFunction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Clock => write!(f, "clock"),
+        }
     }
 }
