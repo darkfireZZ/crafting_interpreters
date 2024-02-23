@@ -4,6 +4,7 @@ use {
         scanner::{Token, TokenInfo},
     },
     std::{
+        cell::RefCell,
         collections::HashMap,
         fmt::{self, Display},
         ops::Deref,
@@ -155,18 +156,21 @@ impl Display for Value {
 
 #[derive(Debug)]
 pub struct Interpreter {
-    environments: Vec<HashMap<String, Value>>,
+    globals: Rc<RefCell<Environment>>,
+    current_env: Rc<RefCell<Environment>>,
 }
 
 impl Interpreter {
     pub fn new() -> Self {
         // TODO: ideally this should be put in a macro
-        let globals = [(
+        let globals = HashMap::from([(
             String::from("clock"),
             Value::BuiltInFunction(BuiltInFunction::Clock),
-        )];
+        )]);
+        let globals = Rc::new(RefCell::new(Environment::new_global(globals)));
         Self {
-            environments: vec![HashMap::from(globals)],
+            current_env: Rc::clone(&globals),
+            globals,
         }
     }
 
@@ -191,7 +195,9 @@ impl Interpreter {
                     Some(expr) => self.eval_expr(expr)?,
                     None => Value::Nil,
                 };
-                self.define_variable(name.lexeme.to_owned(), initializer);
+                self.current_env
+                    .borrow_mut()
+                    .define_variable(name.lexeme.to_owned(), initializer);
             }
             Stmt::FunctionDeclaration {
                 name,
@@ -204,12 +210,17 @@ impl Interpreter {
                     parameters: parameters.to_vec(),
                     body: body.to_vec(),
                 }));
-                self.define_variable(var_name, var_value)
+                self.current_env
+                    .borrow_mut()
+                    .define_variable(var_name, var_value)
             }
             Stmt::Block(stmts) => {
-                self.environments.push(HashMap::new());
+                let mut block_env = Rc::new(RefCell::new(Environment::new_inside(Rc::clone(
+                    &self.current_env,
+                ))));
+                std::mem::swap(&mut self.current_env, &mut block_env);
                 let result = self.eval(stmts);
-                self.environments.pop().expect("is local environment");
+                std::mem::swap(&mut self.current_env, &mut block_env);
                 result?;
             }
             Stmt::If {
@@ -258,10 +269,12 @@ impl Interpreter {
                 right,
             } => self.eval_logical(operator, left, right),
             Expr::Grouping(expr) => self.eval_expr(expr),
-            Expr::Variable { name } => self.get_variable(name),
+            Expr::Variable { name } => self.current_env.borrow().get_variable(name),
             Expr::Assignment { name, value } => {
                 let value = self.eval_expr(value)?;
-                self.set_variable(name, value.clone())?;
+                self.current_env
+                    .borrow_mut()
+                    .set_variable(name, value.clone())?;
                 Ok(value)
             }
             Expr::FunctionCall {
@@ -425,41 +438,6 @@ impl Interpreter {
             })
         }
     }
-
-    fn define_variable(&mut self, name: String, value: Value) {
-        let last_index = self.environments.len() - 1;
-        self.environments
-            .get_mut(last_index)
-            .expect("global environment is always defined")
-            .insert(name, value);
-    }
-
-    fn get_variable(&self, name: &TokenInfo) -> Result<Value, RuntimeError> {
-        // TODO: Cloning is not optimal, it would probably be possible to use a Cow here
-        self.environments
-            .iter()
-            .rev()
-            .find_map(|env| env.get(&name.lexeme))
-            .cloned()
-            .ok_or_else(|| RuntimeError {
-                ty: RuntimeErrorType::UndefinedVariable,
-                token: name.clone(),
-            })
-    }
-
-    fn set_variable(&mut self, name: &TokenInfo, value: Value) -> Result<(), RuntimeError> {
-        let variable_ref = self
-            .environments
-            .iter_mut()
-            .rev()
-            .find_map(|env| env.get_mut(&name.lexeme))
-            .ok_or_else(|| RuntimeError {
-                ty: RuntimeErrorType::UndefinedVariable,
-                token: name.clone(),
-            })?;
-        *variable_ref = value;
-        Ok(())
-    }
 }
 
 trait Callable {
@@ -542,15 +520,14 @@ impl Callable for LoxFunction {
             .zip(arguments)
             .collect();
 
-        let mut function_envs = vec![HashMap::new(), arguments];
+        let mut function_env = Rc::new(RefCell::new(Environment {
+            variables: arguments,
+            enclosing_env: Some(Rc::clone(&interpreter.globals)),
+        }));
 
-        std::mem::swap(&mut interpreter.environments[0], &mut function_envs[0]);
-        std::mem::swap(&mut interpreter.environments, &mut function_envs);
-
+        std::mem::swap(&mut interpreter.current_env, &mut function_env);
         let result = interpreter.eval(&self.body);
-
-        std::mem::swap(&mut interpreter.environments, &mut function_envs);
-        std::mem::swap(&mut interpreter.environments[0], &mut function_envs[0]);
+        std::mem::swap(&mut interpreter.current_env, &mut function_env);
 
         match result {
             Ok(()) => Ok(Value::Nil),
@@ -561,6 +538,59 @@ impl Callable for LoxFunction {
                     Err(err)
                 }
             }
+        }
+    }
+}
+
+#[derive(Debug)]
+struct Environment {
+    variables: HashMap<String, Value>,
+    enclosing_env: Option<Rc<RefCell<Self>>>,
+}
+
+impl Environment {
+    fn new_global(globals: HashMap<String, Value>) -> Self {
+        Self {
+            variables: globals,
+            enclosing_env: None,
+        }
+    }
+
+    fn new_inside(enclosing_env: Rc<RefCell<Self>>) -> Self {
+        Self {
+            variables: HashMap::new(),
+            enclosing_env: Some(enclosing_env),
+        }
+    }
+
+    fn define_variable(&mut self, name: String, value: Value) {
+        self.variables.insert(name, value);
+    }
+
+    fn get_variable(&self, name: &TokenInfo) -> Result<Value, RuntimeError> {
+        if let Some(var_ref) = self.variables.get(&name.lexeme) {
+            Ok(var_ref.clone())
+        } else if let Some(enclosing_env) = self.enclosing_env.as_ref() {
+            enclosing_env.borrow().get_variable(name)
+        } else {
+            Err(RuntimeError {
+                ty: RuntimeErrorType::UndefinedVariable,
+                token: name.clone(),
+            })
+        }
+    }
+
+    fn set_variable(&mut self, name: &TokenInfo, value: Value) -> Result<(), RuntimeError> {
+        if let Some(var_ref) = self.variables.get_mut(&name.lexeme) {
+            *var_ref = value;
+            Ok(())
+        } else if let Some(enclosing_env) = self.enclosing_env.as_mut() {
+            enclosing_env.borrow_mut().set_variable(name, value)
+        } else {
+            Err(RuntimeError {
+                ty: RuntimeErrorType::UndefinedVariable,
+                token: name.clone(),
+            })
         }
     }
 }
