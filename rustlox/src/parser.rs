@@ -20,20 +20,20 @@ pub enum Stmt {
         parameters: Vec<TokenInfo>,
         body: Vec<Stmt>,
     },
-    Expr(Expr),
-    Print(Expr),
+    Expr(Box<Expr>),
+    Print(Box<Expr>),
     Return {
         keyword: TokenInfo,
         value: Option<Expr>,
     },
     Block(Vec<Stmt>),
     If {
-        condition: Expr,
+        condition: Box<Expr>,
         then_branch: Box<Stmt>,
         else_branch: Option<Box<Stmt>>,
     },
     While {
-        condition: Expr,
+        condition: Box<Expr>,
         body: Box<Stmt>,
     },
 }
@@ -286,7 +286,7 @@ impl<'a> Parser<'a> {
     fn parse_print_statement(&mut self) -> Result<Stmt, ParseError> {
         let expr = self.parse_expression()?;
         self.try_consume(Token::Semicolon, ParseErrorType::MissingSemicolon)?;
-        Ok(Stmt::Print(expr))
+        Ok(Stmt::Print(Box::new(expr)))
     }
 
     fn parse_block(&mut self) -> Result<Vec<Stmt>, ParseError> {
@@ -320,7 +320,7 @@ impl<'a> Parser<'a> {
         };
 
         Ok(Stmt::If {
-            condition,
+            condition: Box::new(condition),
             then_branch: Box::new(then_stmt),
             else_branch: else_stmt.map(Box::new),
         })
@@ -339,7 +339,7 @@ impl<'a> Parser<'a> {
         let body = self.parse_statement()?;
 
         Ok(Stmt::While {
-            condition,
+            condition: Box::new(condition),
             body: Box::new(body),
         })
     }
@@ -383,13 +383,13 @@ impl<'a> Parser<'a> {
         let body = self.parse_statement()?;
 
         let body = if let Some(increment) = increment {
-            Stmt::Block(vec![body, Stmt::Expr(increment)])
+            Stmt::Block(vec![body, Stmt::Expr(Box::new(increment))])
         } else {
             body
         };
 
         let while_loop = Stmt::While {
-            condition,
+            condition: Box::new(condition),
             body: Box::new(body),
         };
 
@@ -403,7 +403,7 @@ impl<'a> Parser<'a> {
     fn parse_expression_statement(&mut self) -> Result<Stmt, ParseError> {
         let expr = self.parse_expression()?;
         self.try_consume(Token::Semicolon, ParseErrorType::MissingSemicolon)?;
-        Ok(Stmt::Expr(expr))
+        Ok(Stmt::Expr(Box::new(expr)))
     }
 
     fn parse_expression(&mut self) -> Result<Expr, ParseError> {
