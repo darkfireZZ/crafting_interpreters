@@ -52,14 +52,14 @@ pub enum Token {
     While,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub struct TokenInfo<'a> {
+#[derive(Clone, Debug)]
+pub struct TokenInfo {
     pub token: Token,
-    pub lexeme: &'a str,
+    pub lexeme: String,
     pub line: usize,
 }
 
-impl<'a> Display for TokenInfo<'a> {
+impl Display for TokenInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?} {} {}", self.token, self.lexeme, self.line)
     }
@@ -105,19 +105,19 @@ impl<'a> Scanner<'a> {
         }
     }
 
-    fn consume(&mut self, token: Token, length: usize) -> TokenInfo<'a> {
+    fn consume(&mut self, token: Token, length: usize) -> TokenInfo {
         let (lexeme, remainder) = self.source.split_at(length);
 
         self.source = remainder;
 
         TokenInfo {
             token,
-            lexeme,
+            lexeme: lexeme.to_owned(),
             line: self.current_line,
         }
     }
 
-    fn consume_string_literal(&mut self) -> Result<TokenInfo<'a>, SourceError> {
+    fn consume_string_literal(&mut self) -> Result<TokenInfo, SourceError> {
         debug_assert_eq!(self.source.as_bytes()[0], b'"');
 
         // Already count opening and closing double quotes.
@@ -142,7 +142,7 @@ impl<'a> Scanner<'a> {
         })
     }
 
-    fn consume_number_literal(&mut self) -> TokenInfo<'a> {
+    fn consume_number_literal(&mut self) -> TokenInfo {
         debug_assert!(self.source.as_bytes()[0].is_ascii_digit());
 
         let end_index = match self.source[1..]
@@ -171,7 +171,7 @@ impl<'a> Scanner<'a> {
         self.consume(Token::Number, end_index)
     }
 
-    fn consume_identifier_or_keyword(&mut self) -> TokenInfo<'a> {
+    fn consume_identifier_or_keyword(&mut self) -> TokenInfo {
         debug_assert!(is_identifier_start_char(self.source.as_bytes()[0]));
 
         let end_index = 1 + self.source[1..]
@@ -217,8 +217,8 @@ impl<'a> Scanner<'a> {
     }
 }
 
-impl<'a> Iterator for Scanner<'a> {
-    type Item = TokenInfo<'a>;
+impl Iterator for Scanner<'_> {
+    type Item = TokenInfo;
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             if let Some(next_byte) = self.source.as_bytes().first() {

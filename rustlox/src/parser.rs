@@ -9,69 +9,80 @@ use {
     },
 };
 
-#[derive(Debug)]
-pub enum Stmt<'a> {
+#[derive(Clone, Debug)]
+pub enum Stmt {
     VariableDeclaration {
-        name: TokenInfo<'a>,
-        initializer: Option<Expr<'a>>,
+        name: TokenInfo,
+        initializer: Option<Expr>,
     },
-    Expr(Expr<'a>),
-    Print(Expr<'a>),
-    Block(Vec<Stmt<'a>>),
+    FunctionDeclaration {
+        name: TokenInfo,
+        parameters: Vec<TokenInfo>,
+        body: Vec<Stmt>,
+    },
+    Expr(Expr),
+    Print(Expr),
+    Block(Vec<Stmt>),
     If {
-        condition: Expr<'a>,
-        then_branch: Box<Stmt<'a>>,
-        else_branch: Option<Box<Stmt<'a>>>,
+        condition: Expr,
+        then_branch: Box<Stmt>,
+        else_branch: Option<Box<Stmt>>,
     },
     While {
-        condition: Expr<'a>,
-        body: Box<Stmt<'a>>,
+        condition: Expr,
+        body: Box<Stmt>,
     },
 }
 
-#[derive(Debug)]
-pub enum Expr<'a> {
+#[derive(Clone, Debug)]
+pub enum Expr {
     Literal(Value),
     Unary {
-        operator: TokenInfo<'a>,
-        expr: Box<Expr<'a>>,
+        operator: TokenInfo,
+        expr: Box<Expr>,
     },
     Binary {
-        operator: TokenInfo<'a>,
-        left: Box<Expr<'a>>,
-        right: Box<Expr<'a>>,
+        operator: TokenInfo,
+        left: Box<Expr>,
+        right: Box<Expr>,
     },
     Logical {
-        operator: TokenInfo<'a>,
-        left: Box<Expr<'a>>,
-        right: Box<Expr<'a>>,
+        operator: TokenInfo,
+        left: Box<Expr>,
+        right: Box<Expr>,
     },
-    Grouping(Box<Expr<'a>>),
+    Grouping(Box<Expr>),
     Variable {
-        name: TokenInfo<'a>,
+        name: TokenInfo,
     },
     Assignment {
-        name: TokenInfo<'a>,
-        value: Box<Expr<'a>>,
+        name: TokenInfo,
+        value: Box<Expr>,
     },
     FunctionCall {
-        callee: Box<Expr<'a>>,
-        arguments: Vec<Expr<'a>>,
-        opening_paren: TokenInfo<'a>,
-        closing_paren: TokenInfo<'a>,
+        callee: Box<Expr>,
+        arguments: Vec<Expr>,
+        opening_paren: TokenInfo,
+        closing_paren: TokenInfo,
     },
 }
 
 #[derive(Clone, Copy, Debug)]
 enum ParseErrorType {
     MissingOpeningParenInControlFlowStmt,
+    MissingOpeningParenInFunctionDeclaration,
     MissingClosingParenInControlFlowStmt,
+    MissingClosingParenInFunctionDeclaration,
     MissingParenAfterFunctionArgs,
     MissingSemicolon,
+    ExpectedBlockAfterParameters,
     ExpectedExpression,
+    ExpectedFunctionName,
+    ExpectedFunctionParameterName,
     ExpectedVariableName,
     InvalidAssignmentTarget,
     TooManyFunctionArguments,
+    TooManyFunctionParameters,
     UnclosedGrouping,
     UnterminatedBlock,
 }
@@ -82,15 +93,29 @@ impl Display for ParseErrorType {
             Self::MissingOpeningParenInControlFlowStmt => {
                 write!(f, "Missing '(' in control flow statement")
             }
+            Self::MissingOpeningParenInFunctionDeclaration => {
+                write!(f, "Missing '(' in function declaration")
+            }
             Self::MissingClosingParenInControlFlowStmt => {
                 write!(f, "Missing ')' in control flow statement")
             }
-            Self::MissingParenAfterFunctionArgs => write!(f, "Expected ')' after function arguments"),
+            Self::MissingClosingParenInFunctionDeclaration => {
+                write!(f, "Missing ')' in function declaration")
+            }
+            Self::MissingParenAfterFunctionArgs => {
+                write!(f, "Expected ')' after function arguments")
+            }
             Self::MissingSemicolon => write!(f, "Missing semicolon"),
+            Self::ExpectedBlockAfterParameters => write!(f, "Expected '{{' after parameter list"),
             Self::ExpectedExpression => write!(f, "Expected expression"),
+            Self::ExpectedFunctionName => write!(f, "Expected function name"),
+            Self::ExpectedFunctionParameterName => write!(f, "Expected parameter name"),
             Self::ExpectedVariableName => write!(f, "Expected variable name"),
             Self::InvalidAssignmentTarget => write!(f, "Invalid assignment target"),
             Self::TooManyFunctionArguments => write!(f, "Functions may have at most 255 arguments"),
+            Self::TooManyFunctionParameters => {
+                write!(f, "Functions may have at most 255 parameters")
+            }
             Self::UnclosedGrouping => write!(f, "Missing ')', unclosed grouping"),
             Self::UnterminatedBlock => write!(f, "Expected terminating '}}' after block"),
         }
@@ -99,14 +124,14 @@ impl Display for ParseErrorType {
 
 // TODO unify this error type with SourceError
 #[derive(Debug)]
-struct ParseError<'a> {
+struct ParseError {
     ty: ParseErrorType,
-    token: Option<TokenInfo<'a>>,
+    token: Option<TokenInfo>,
 }
 
-impl<'a> Display for ParseError<'a> {
+impl Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self.token {
+        match &self.token {
             Some(token) => write!(f, "[line {}] Error: {}", token.line, self.ty),
             // TODO indicate line of error
             None => write!(f, "[end of file] Error: {}", self.ty),
@@ -130,7 +155,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn parse(&mut self) -> Option<Vec<Stmt<'a>>> {
+    pub fn parse(&mut self) -> Option<Vec<Stmt>> {
         let mut stmts = Vec::new();
         let mut had_error = false;
         while self.scanner.peek().is_some() {
@@ -151,15 +176,17 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_declaration(&mut self) -> Result<Stmt<'a>, ParseError<'a>> {
+    fn parse_declaration(&mut self) -> Result<Stmt, ParseError> {
         if self.matches(|token| token == Token::Var).is_some() {
             self.parse_variable_declaration()
+        } else if self.matches(|token| token == Token::Fun).is_some() {
+            self.parse_function_declaration()
         } else {
             self.parse_statement()
         }
     }
 
-    fn parse_variable_declaration(&mut self) -> Result<Stmt<'a>, ParseError<'a>> {
+    fn parse_variable_declaration(&mut self) -> Result<Stmt, ParseError> {
         let name = self.try_consume(Token::Identifier, ParseErrorType::ExpectedVariableName)?;
         let initializer = match self.matches(|token| token == Token::Equal) {
             Some(_) => Some(self.parse_expression()?),
@@ -169,7 +196,59 @@ impl<'a> Parser<'a> {
         Ok(Stmt::VariableDeclaration { name, initializer })
     }
 
-    fn parse_statement(&mut self) -> Result<Stmt<'a>, ParseError<'a>> {
+    fn parse_function_declaration(&mut self) -> Result<Stmt, ParseError> {
+        let function_name =
+            self.try_consume(Token::Identifier, ParseErrorType::ExpectedFunctionName)?;
+        self.try_consume(
+            Token::LeftParen,
+            ParseErrorType::MissingOpeningParenInFunctionDeclaration,
+        )?;
+
+        let mut parameters = Vec::new();
+        if self
+            .scanner
+            .peek()
+            .filter(|token| token.token == Token::RightParen)
+            .is_none()
+        {
+            loop {
+                let param_name = self.try_consume(
+                    Token::Identifier,
+                    ParseErrorType::ExpectedFunctionParameterName,
+                )?;
+                parameters.push(param_name);
+                if self.matches(|token| token == Token::Comma).is_none() {
+                    break;
+                }
+            }
+        }
+
+        let closing_paren = self.try_consume(
+            Token::RightParen,
+            ParseErrorType::MissingClosingParenInFunctionDeclaration,
+        )?;
+
+        self.try_consume(
+            Token::LeftBrace,
+            ParseErrorType::ExpectedBlockAfterParameters,
+        )?;
+        let body = self.parse_block()?;
+
+        if parameters.len() < 255 {
+            Ok(Stmt::FunctionDeclaration {
+                name: function_name,
+                parameters,
+                body,
+            })
+        } else {
+            Err(ParseError {
+                ty: ParseErrorType::TooManyFunctionParameters,
+                token: Some(closing_paren),
+            })
+        }
+    }
+
+    fn parse_statement(&mut self) -> Result<Stmt, ParseError> {
         if self.matches(|token| token == Token::Print).is_some() {
             self.parse_print_statement()
         } else if self.matches(|token| token == Token::LeftBrace).is_some() {
@@ -185,13 +264,13 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_print_statement(&mut self) -> Result<Stmt<'a>, ParseError<'a>> {
+    fn parse_print_statement(&mut self) -> Result<Stmt, ParseError> {
         let expr = self.parse_expression()?;
         self.try_consume(Token::Semicolon, ParseErrorType::MissingSemicolon)?;
         Ok(Stmt::Print(expr))
     }
 
-    fn parse_block(&mut self) -> Result<Vec<Stmt<'a>>, ParseError<'a>> {
+    fn parse_block(&mut self) -> Result<Vec<Stmt>, ParseError> {
         let mut stmts = Vec::new();
         while self
             .scanner
@@ -204,7 +283,7 @@ impl<'a> Parser<'a> {
         Ok(stmts)
     }
 
-    fn parse_if_statement(&mut self) -> Result<Stmt<'a>, ParseError<'a>> {
+    fn parse_if_statement(&mut self) -> Result<Stmt, ParseError> {
         self.try_consume(
             Token::LeftParen,
             ParseErrorType::MissingOpeningParenInControlFlowStmt,
@@ -228,7 +307,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_while_statement(&mut self) -> Result<Stmt<'a>, ParseError<'a>> {
+    fn parse_while_statement(&mut self) -> Result<Stmt, ParseError> {
         self.try_consume(
             Token::LeftParen,
             ParseErrorType::MissingOpeningParenInControlFlowStmt,
@@ -246,7 +325,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_for_statement(&mut self) -> Result<Stmt<'a>, ParseError<'a>> {
+    fn parse_for_statement(&mut self) -> Result<Stmt, ParseError> {
         self.try_consume(
             Token::LeftParen,
             ParseErrorType::MissingOpeningParenInControlFlowStmt,
@@ -302,17 +381,17 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_expression_statement(&mut self) -> Result<Stmt<'a>, ParseError<'a>> {
+    fn parse_expression_statement(&mut self) -> Result<Stmt, ParseError> {
         let expr = self.parse_expression()?;
         self.try_consume(Token::Semicolon, ParseErrorType::MissingSemicolon)?;
         Ok(Stmt::Expr(expr))
     }
 
-    fn parse_expression(&mut self) -> Result<Expr<'a>, ParseError<'a>> {
+    fn parse_expression(&mut self) -> Result<Expr, ParseError> {
         self.parse_assignment()
     }
 
-    fn parse_assignment(&mut self) -> Result<Expr<'a>, ParseError<'a>> {
+    fn parse_assignment(&mut self) -> Result<Expr, ParseError> {
         let left = self.parse_or()?;
 
         match self.matches(|token| token == Token::Equal) {
@@ -334,7 +413,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_or(&mut self) -> Result<Expr<'a>, ParseError<'a>> {
+    fn parse_or(&mut self) -> Result<Expr, ParseError> {
         let mut left = self.parse_and()?;
 
         while let Some(or_token) = self.matches(|token| token == Token::Or) {
@@ -349,7 +428,7 @@ impl<'a> Parser<'a> {
         Ok(left)
     }
 
-    fn parse_and(&mut self) -> Result<Expr<'a>, ParseError<'a>> {
+    fn parse_and(&mut self) -> Result<Expr, ParseError> {
         let mut left = self.parse_equality()?;
 
         while let Some(and_token) = self.matches(|token| token == Token::And) {
@@ -364,7 +443,7 @@ impl<'a> Parser<'a> {
         Ok(left)
     }
 
-    fn parse_equality(&mut self) -> Result<Expr<'a>, ParseError<'a>> {
+    fn parse_equality(&mut self) -> Result<Expr, ParseError> {
         let mut left = self.parse_comparison()?;
 
         while let Some(operator) =
@@ -381,7 +460,7 @@ impl<'a> Parser<'a> {
         Ok(left)
     }
 
-    fn parse_comparison(&mut self) -> Result<Expr<'a>, ParseError<'a>> {
+    fn parse_comparison(&mut self) -> Result<Expr, ParseError> {
         let mut left = self.parse_term()?;
 
         while let Some(operator) = self.matches(|token| {
@@ -404,7 +483,7 @@ impl<'a> Parser<'a> {
         Ok(left)
     }
 
-    fn parse_term(&mut self) -> Result<Expr<'a>, ParseError<'a>> {
+    fn parse_term(&mut self) -> Result<Expr, ParseError> {
         let mut left = self.parse_factor()?;
 
         while let Some(operator) =
@@ -421,7 +500,7 @@ impl<'a> Parser<'a> {
         Ok(left)
     }
 
-    fn parse_factor(&mut self) -> Result<Expr<'a>, ParseError<'a>> {
+    fn parse_factor(&mut self) -> Result<Expr, ParseError> {
         let mut left = self.parse_unary()?;
 
         while let Some(operator) =
@@ -438,7 +517,7 @@ impl<'a> Parser<'a> {
         Ok(left)
     }
 
-    fn parse_unary(&mut self) -> Result<Expr<'a>, ParseError<'a>> {
+    fn parse_unary(&mut self) -> Result<Expr, ParseError> {
         if let Some(operator) =
             self.matches(|token| (token == Token::Bang) || (token == Token::Minus))
         {
@@ -451,7 +530,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_function_call(&mut self) -> Result<Expr<'a>, ParseError<'a>> {
+    fn parse_function_call(&mut self) -> Result<Expr, ParseError> {
         let mut expr = self.parse_primary()?;
         while let Some(opening_paren) = self.matches(|token| token == Token::LeftParen) {
             expr = self.parse_function_arguments(opening_paren, expr)?;
@@ -459,9 +538,18 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
-    fn parse_function_arguments(&mut self, opening_paren: TokenInfo<'a>, callee: Expr<'a>) -> Result<Expr<'a>, ParseError<'a>> {
+    fn parse_function_arguments(
+        &mut self,
+        opening_paren: TokenInfo,
+        callee: Expr,
+    ) -> Result<Expr, ParseError> {
         let mut arguments = Vec::new();
-        if self.scanner.peek().filter(|token| token.token == Token::RightParen).is_none() {
+        if self
+            .scanner
+            .peek()
+            .filter(|token| token.token == Token::RightParen)
+            .is_none()
+        {
             loop {
                 arguments.push(self.parse_expression()?);
                 if self.matches(|token| token == Token::Comma).is_none() {
@@ -470,10 +558,18 @@ impl<'a> Parser<'a> {
             }
         }
 
-        let closing_paren = self.try_consume(Token::RightParen, ParseErrorType::MissingParenAfterFunctionArgs)?;
+        let closing_paren = self.try_consume(
+            Token::RightParen,
+            ParseErrorType::MissingParenAfterFunctionArgs,
+        )?;
 
         if arguments.len() < 255 {
-            Ok(Expr::FunctionCall { callee: Box::new(callee), arguments, opening_paren, closing_paren })
+            Ok(Expr::FunctionCall {
+                callee: Box::new(callee),
+                arguments,
+                opening_paren,
+                closing_paren,
+            })
         } else {
             Err(ParseError {
                 ty: ParseErrorType::TooManyFunctionArguments,
@@ -482,7 +578,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_primary(&mut self) -> Result<Expr<'a>, ParseError<'a>> {
+    fn parse_primary(&mut self) -> Result<Expr, ParseError> {
         if self.matches(|token| token == Token::Nil).is_some() {
             Ok(Expr::Literal(Value::Nil))
         } else if self.matches(|token| token == Token::True).is_some() {
@@ -506,7 +602,7 @@ impl<'a> Parser<'a> {
         } else {
             Err(ParseError {
                 ty: ParseErrorType::ExpectedExpression,
-                token: self.scanner.peek().copied(),
+                token: self.scanner.peek().cloned(),
             })
         }
     }
@@ -515,18 +611,18 @@ impl<'a> Parser<'a> {
         &mut self,
         token: Token,
         err_ty: ParseErrorType,
-    ) -> Result<TokenInfo<'a>, ParseError<'a>> {
+    ) -> Result<TokenInfo, ParseError> {
         let next = self.scanner.peek();
         match next {
             Some(next_token) if next_token.token == token => Ok(self.scanner.next().unwrap()),
             _ => Err(ParseError {
                 ty: err_ty,
-                token: next.copied(),
+                token: next.cloned(),
             }),
         }
     }
 
-    fn matches<F: FnOnce(Token) -> bool>(&mut self, is_match: F) -> Option<TokenInfo<'a>> {
+    fn matches<F: FnOnce(Token) -> bool>(&mut self, is_match: F) -> Option<TokenInfo> {
         if self.scanner.peek().is_some_and(|next| is_match(next.token)) {
             self.scanner.next()
         } else {

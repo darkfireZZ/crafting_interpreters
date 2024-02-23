@@ -16,11 +16,11 @@ mod parser;
 mod scanner;
 
 #[derive(Debug)]
-enum InterpreterError<'a> {
-    RuntimeError(RuntimeError<'a>),
+enum InterpreterError {
+    RuntimeError(RuntimeError),
 }
 
-impl fmt::Display for InterpreterError<'_> {
+impl fmt::Display for InterpreterError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::RuntimeError(err) => err.fmt(f),
@@ -28,10 +28,10 @@ impl fmt::Display for InterpreterError<'_> {
     }
 }
 
-impl std::error::Error for InterpreterError<'_> {}
+impl std::error::Error for InterpreterError {}
 
-impl<'a> From<RuntimeError<'a>> for InterpreterError<'a> {
-    fn from(err: RuntimeError<'a>) -> Self {
+impl From<RuntimeError> for InterpreterError {
+    fn from(err: RuntimeError) -> Self {
         Self::RuntimeError(err)
     }
 }
@@ -138,7 +138,7 @@ fn run_file(script_name: &str) -> io::Result<()> {
     Ok(())
 }
 
-fn run<'a>(interpreter: &mut Interpreter, source: &'a str) -> Result<(), InterpreterError<'a>> {
+fn run(interpreter: &mut Interpreter, source: &str) -> Result<(), InterpreterError> {
     let scanner = Scanner::new(source);
     let mut parser = Parser::new(scanner);
     // TODO don't unwrap here
