@@ -38,6 +38,7 @@ enum RuntimeErrorType {
     },
     TypeNotCallable(ValueType),
     UndefinedVariable,
+    Return(Value),
 }
 
 impl Display for RuntimeErrorType {
@@ -65,6 +66,7 @@ impl Display for RuntimeErrorType {
             }
             Self::TypeNotCallable(ty) => write!(f, "{ty} is not callable"),
             Self::UndefinedVariable => write!(f, "Undefined variable"),
+            Self::Return(_) => write!(f, "Return is only valid inside a function"),
         }
     }
 }
@@ -225,6 +227,17 @@ impl Interpreter {
                 while self.eval_expr(condition)?.is_truthy() {
                     self.eval_stmt(body)?;
                 }
+            }
+            Stmt::Return { keyword, value } => {
+                let value = match value {
+                    Some(expr) => self.eval_expr(expr)?,
+                    None => Value::Nil,
+                };
+
+                return Err(RuntimeError {
+                    ty: RuntimeErrorType::Return(value),
+                    token: keyword.clone(),
+                });
             }
         }
         Ok(())
@@ -539,7 +552,15 @@ impl Callable for LoxFunction {
         std::mem::swap(&mut interpreter.environments, &mut function_envs);
         std::mem::swap(&mut interpreter.environments[0], &mut function_envs[0]);
 
-        result?;
-        Ok(Value::Nil)
+        match result {
+            Ok(()) => Ok(Value::Nil),
+            Err(err) => {
+                if let RuntimeErrorType::Return(return_value) = err.ty {
+                    Ok(return_value)
+                } else {
+                    Err(err)
+                }
+            }
+        }
     }
 }

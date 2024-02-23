@@ -22,6 +22,10 @@ pub enum Stmt {
     },
     Expr(Expr),
     Print(Expr),
+    Return {
+        keyword: TokenInfo,
+        value: Option<Expr>,
+    },
     Block(Vec<Stmt>),
     If {
         condition: Expr,
@@ -251,6 +255,21 @@ impl<'a> Parser<'a> {
     fn parse_statement(&mut self) -> Result<Stmt, ParseError> {
         if self.matches(|token| token == Token::Print).is_some() {
             self.parse_print_statement()
+        } else if let Some(return_keyword) = self.matches(|token| token == Token::Return) {
+            let return_value = if self
+                .scanner
+                .peek()
+                .is_some_and(|token| token.token != Token::Semicolon)
+            {
+                Some(self.parse_expression()?)
+            } else {
+                None
+            };
+            self.try_consume(Token::Semicolon, ParseErrorType::MissingSemicolon)?;
+            Ok(Stmt::Return {
+                keyword: return_keyword,
+                value: return_value,
+            })
         } else if self.matches(|token| token == Token::LeftBrace).is_some() {
             Ok(Stmt::Block(self.parse_block()?))
         } else if self.matches(|token| token == Token::If).is_some() {
