@@ -28,7 +28,7 @@ mod token;
 enum InterpreterError {
     Tokenization(ErrorGroup<TokenizationError>),
     Parsing(ErrorGroup<ParseError>),
-    Resolution(ResolutionError),
+    Resolution(ErrorGroup<ResolutionError>),
     Runtime(RuntimeError),
 }
 
@@ -54,9 +54,9 @@ impl From<ErrorGroup<ParseError>> for InterpreterError {
         Self::Parsing(errors)
     }
 }
-impl From<ResolutionError> for InterpreterError {
-    fn from(err: ResolutionError) -> Self {
-        Self::Resolution(err)
+impl From<ErrorGroup<ResolutionError>> for InterpreterError {
+    fn from(errors: ErrorGroup<ResolutionError>) -> Self {
+        Self::Resolution(errors)
     }
 }
 

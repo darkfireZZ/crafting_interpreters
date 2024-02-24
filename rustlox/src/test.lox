@@ -1,9 +1,11 @@
 
-// Error, variable declarations are no expressions
-var outer = (var inner = "oops");
+{
+    var double_definition;
+    fun double_definition() {}
+}
 
-// Error, no empty statements allowed
-;
+{
+    var used_in_own_initializer = used_in_own_initializer;
+}
 
-// Error, function definition without body
-fun nobody()
+return "return from global scope";

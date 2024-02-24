@@ -1,5 +1,6 @@
 use {
     crate::{
+        error_group::ErrorGroup,
         syntax_tree::{Expr, FunctionDefinition, Stmt, SyntaxTree, Variable},
         token::TokenInfo,
     },
@@ -9,7 +10,7 @@ use {
     },
 };
 
-pub fn resolve(syntax_tree: &mut SyntaxTree) -> Result<(), ResolutionError> {
+pub fn resolve(syntax_tree: &mut SyntaxTree) -> Result<(), ErrorGroup<ResolutionError>> {
     Resolver::new().resolve(syntax_tree)
 }
 
@@ -28,6 +29,7 @@ enum FunctionType {
 struct Resolver {
     scopes: Vec<HashMap<String, ResolutionStatus>>,
     current_function: Option<FunctionType>,
+    errors: ErrorGroup<ResolutionError>,
 }
 
 impl Resolver {
@@ -35,51 +37,52 @@ impl Resolver {
         Self {
             scopes: Vec::new(),
             current_function: None,
+            errors: ErrorGroup::new(),
         }
     }
 
-    fn resolve(&mut self, syntax_tree: &mut SyntaxTree) -> Result<(), ResolutionError> {
-        self.resolve_stmts(&mut syntax_tree.program)
+    fn resolve(mut self, syntax_tree: &mut SyntaxTree) -> Result<(), ErrorGroup<ResolutionError>> {
+        self.resolve_stmts(&mut syntax_tree.program);
+        self.errors.error_or_else(|| ())
     }
 
-    fn resolve_stmts(&mut self, stmts: &mut [Stmt]) -> Result<(), ResolutionError> {
+    fn resolve_stmts(&mut self, stmts: &mut [Stmt]) {
         for stmt in stmts {
-            self.resolve_stmt(stmt)?;
+            self.resolve_stmt(stmt);
         }
-        Ok(())
     }
 
-    fn resolve_stmt(&mut self, stmt: &mut Stmt) -> Result<(), ResolutionError> {
+    fn resolve_stmt(&mut self, stmt: &mut Stmt) {
         match stmt {
-            Stmt::Expr(expr) => self.resolve_expr(expr)?,
+            Stmt::Expr(expr) => self.resolve_expr(expr),
             Stmt::Block(stmts) => {
                 self.begin_scope();
-                self.resolve_stmts(stmts)?;
+                self.resolve_stmts(stmts);
                 self.end_scope();
             }
             Stmt::VariableDeclaration { name, initializer } => {
-                self.declare(name)?;
+                self.declare(name);
                 if let Some(initializer) = initializer {
-                    self.resolve_expr(initializer)?;
+                    self.resolve_expr(initializer);
                 }
                 self.define(name);
             }
             Stmt::FunctionDeclaration(function) => {
-                self.declare(&function.name)?;
+                self.declare(&function.name);
                 self.define(&function.name);
-                self.resolve_function(function)?;
+                self.resolve_function(function);
             }
-            Stmt::Print(expr) => self.resolve_expr(expr)?,
+            Stmt::Print(expr) => self.resolve_expr(expr),
             Stmt::Return { keyword, value } => {
                 if self.current_function.is_none() {
-                    return Err(ResolutionError {
+                    self.errors.add(ResolutionError {
                         ty: ResolutionErrorType::ReturnFromGlobalScope,
                         token: keyword.clone(),
                     });
                 }
 
                 if let Some(value) = value {
-                    self.resolve_expr(value)?;
+                    self.resolve_expr(value);
                 }
             }
             Stmt::If {
@@ -87,21 +90,20 @@ impl Resolver {
                 then_branch,
                 else_branch,
             } => {
-                self.resolve_expr(condition)?;
-                self.resolve_stmt(then_branch)?;
+                self.resolve_expr(condition);
+                self.resolve_stmt(then_branch);
                 if let Some(else_branch) = else_branch {
-                    self.resolve_stmt(else_branch)?;
+                    self.resolve_stmt(else_branch)
                 }
             }
             Stmt::While { condition, body } => {
-                self.resolve_expr(condition)?;
-                self.resolve_stmt(body)?;
+                self.resolve_expr(condition);
+                self.resolve_stmt(body);
             }
         }
-        Ok(())
     }
 
-    fn resolve_expr(&mut self, expr: &mut Expr) -> Result<(), ResolutionError> {
+    fn resolve_expr(&mut self, expr: &mut Expr) {
         match expr {
             Expr::Variable(variable) => {
                 if self
@@ -110,7 +112,7 @@ impl Resolver {
                     .and_then(|current_scope| current_scope.get(&variable.name().lexeme))
                     .is_some_and(|status| *status == ResolutionStatus::Declared)
                 {
-                    return Err(ResolutionError {
+                    self.errors.add(ResolutionError {
                         ty: ResolutionErrorType::ReadLocalVarInItsOwnInitializer,
                         token: variable.name().clone(),
                     });
@@ -119,47 +121,42 @@ impl Resolver {
                 }
             }
             Expr::Assignment { variable, value } => {
-                self.resolve_expr(value)?;
+                self.resolve_expr(value);
                 self.resolve_local(variable);
             }
-            Expr::Unary { expr, .. } => self.resolve_expr(expr)?,
+            Expr::Unary { expr, .. } => self.resolve_expr(expr),
             Expr::Binary { left, right, .. } => {
-                self.resolve_expr(left)?;
-                self.resolve_expr(right)?;
+                self.resolve_expr(left);
+                self.resolve_expr(right);
             }
             Expr::Logical { left, right, .. } => {
-                self.resolve_expr(left)?;
-                self.resolve_expr(right)?;
+                self.resolve_expr(left);
+                self.resolve_expr(right);
             }
-            Expr::Grouping(expr) => self.resolve_expr(expr)?,
+            Expr::Grouping(expr) => self.resolve_expr(expr),
             Expr::FunctionCall {
                 callee, arguments, ..
             } => {
-                self.resolve_expr(callee)?;
+                self.resolve_expr(callee);
                 for arg in arguments {
-                    self.resolve_expr(arg)?;
+                    self.resolve_expr(arg);
                 }
             }
-            Expr::Literal { .. } => (),
+            Expr::Literal { .. } => {}
         }
-        Ok(())
     }
 
-    fn resolve_function(
-        &mut self,
-        function: &mut FunctionDefinition,
-    ) -> Result<(), ResolutionError> {
+    fn resolve_function(&mut self, function: &mut FunctionDefinition) {
         let enclosing_func_type = self.current_function;
         self.current_function = Some(FunctionType::Function);
         self.begin_scope();
         for param in &function.parameters {
-            self.declare(param)?;
+            self.declare(param);
             self.define(param);
         }
-        self.resolve_stmts(&mut function.body)?;
+        self.resolve_stmts(&mut function.body);
         self.end_scope();
         self.current_function = enclosing_func_type;
-        Ok(())
     }
 
     fn begin_scope(&mut self) {
@@ -170,21 +167,20 @@ impl Resolver {
         self.scopes.pop();
     }
 
-    fn declare(&mut self, variable: &TokenInfo) -> Result<(), ResolutionError> {
+    fn declare(&mut self, variable: &TokenInfo) {
         if let Some(current_scope) = self.scopes.last_mut() {
             match current_scope.entry(variable.lexeme.clone()) {
                 hash_map::Entry::Occupied(_) => {
-                    return Err(ResolutionError {
+                    self.errors.add(ResolutionError {
                         ty: ResolutionErrorType::MultipleDefinitionsWithSameName,
                         token: variable.clone(),
-                    })
+                    });
                 }
                 hash_map::Entry::Vacant(entry) => {
                     entry.insert(ResolutionStatus::Declared);
                 }
             }
         }
-        Ok(())
     }
 
     fn define(&mut self, variable: &TokenInfo) {
