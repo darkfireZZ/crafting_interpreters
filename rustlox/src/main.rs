@@ -11,9 +11,12 @@ use {
     },
 };
 
+mod data_types;
 mod eval;
 mod parser;
 mod scanner;
+mod syntax_tree;
+mod token;
 
 #[derive(Debug)]
 enum InterpreterError {

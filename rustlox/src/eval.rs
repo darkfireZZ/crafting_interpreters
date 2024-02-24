@@ -1,7 +1,8 @@
 use {
     crate::{
-        parser::{Expr, Stmt},
-        scanner::{Token, TokenInfo},
+        data_types::{BuiltInFunction, LoxFunction, Value, ValueType},
+        syntax_tree::{Expr, Stmt},
+        token::{Token, TokenInfo},
     },
     std::{
         cell::RefCell,
@@ -72,86 +73,14 @@ impl Display for RuntimeErrorType {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum ValueType {
-    Nil,
-    Boolean,
-    Number,
-    String,
-    BuiltInFunction,
-    LoxFunction,
-}
-
-impl ValueType {
-    fn as_str(&self) -> &'static str {
-        match self {
-            Self::Nil => "nil",
-            Self::Boolean => "boolean",
-            Self::Number => "number",
-            Self::String => "string",
-            Self::BuiltInFunction => "built-in function",
-            Self::LoxFunction => "function",
-        }
-    }
-}
-
-impl Display for ValueType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.as_str())
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum Value {
-    Nil,
-    Boolean(bool),
-    Number(f64),
-    String(String),
-    BuiltInFunction(BuiltInFunction),
-    LoxFunction(Rc<LoxFunction>),
-}
-
-impl Value {
-    fn value_type(&self) -> ValueType {
-        match self {
-            Self::Nil => ValueType::Nil,
-            Self::Boolean(_) => ValueType::Boolean,
-            Self::Number(_) => ValueType::Number,
-            Self::String(_) => ValueType::String,
-            Self::BuiltInFunction(_) => ValueType::BuiltInFunction,
-            Self::LoxFunction(_) => ValueType::LoxFunction,
-        }
-    }
-
-    fn is_truthy(&self) -> bool {
-        !matches!(self, Self::Nil | Self::Boolean(false))
-    }
-
-    fn convert_to_number(&self, error_token: &TokenInfo) -> Result<f64, RuntimeError> {
-        match self {
-            Self::Number(val) => Ok(*val),
-            _ => Err(RuntimeError {
-                ty: RuntimeErrorType::ExpectedDifferentType {
-                    actual: self.value_type(),
-                    expected: vec![ValueType::Number],
-                },
-                token: error_token.clone(),
-            }),
-        }
-    }
-}
-
-impl Display for Value {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::Nil => write!(f, "nil"),
-            Self::Boolean(val) => val.fmt(f),
-            Self::Number(val) => val.fmt(f),
-            Self::String(val) => val.fmt(f),
-            Self::BuiltInFunction(function) => write!(f, "<built-in function \"{}\">", function),
-            Self::LoxFunction(function) => write!(f, "<fn {} >", function.name),
-        }
-    }
+fn convert_value_to_number(value: Value, error_token: &TokenInfo) -> Result<f64, RuntimeError> {
+    value.convert_to_number().ok_or_else(|| RuntimeError {
+        ty: RuntimeErrorType::ExpectedDifferentType {
+            actual: value.value_type(),
+            expected: vec![ValueType::Number],
+        },
+        token: error_token.clone(),
+    })
 }
 
 #[derive(Debug)]
@@ -287,7 +216,7 @@ impl Interpreter {
     fn eval_unary(&mut self, operator: &TokenInfo, expr: &Expr) -> Result<Value, RuntimeError> {
         let val = self.eval_expr(expr)?;
         Ok(match operator.token {
-            Token::Minus => Value::Number(-val.convert_to_number(operator)?),
+            Token::Minus => Value::Number(-convert_value_to_number(val, operator)?),
             Token::Bang => Value::Boolean(!val.is_truthy()),
             _ => panic!(
                 "Interpreter bug, tried to evaluate {} as unary operator",
@@ -333,25 +262,32 @@ impl Interpreter {
                 }
             },
             Token::Minus => Value::Number(
-                left.convert_to_number(operator)? - right.convert_to_number(operator)?,
+                convert_value_to_number(left, operator)?
+                    - convert_value_to_number(right, operator)?,
             ),
             Token::Star => Value::Number(
-                left.convert_to_number(operator)? * right.convert_to_number(operator)?,
+                convert_value_to_number(left, operator)?
+                    * convert_value_to_number(right, operator)?,
             ),
             Token::Slash => Value::Number(
-                left.convert_to_number(operator)? / right.convert_to_number(operator)?,
+                convert_value_to_number(left, operator)?
+                    / convert_value_to_number(right, operator)?,
             ),
             Token::Greater => Value::Boolean(
-                left.convert_to_number(operator)? > right.convert_to_number(operator)?,
+                convert_value_to_number(left, operator)?
+                    > convert_value_to_number(right, operator)?,
             ),
             Token::GreaterEqual => Value::Boolean(
-                left.convert_to_number(operator)? >= right.convert_to_number(operator)?,
+                convert_value_to_number(left, operator)?
+                    >= convert_value_to_number(right, operator)?,
             ),
             Token::Less => Value::Boolean(
-                left.convert_to_number(operator)? < right.convert_to_number(operator)?,
+                convert_value_to_number(left, operator)?
+                    < convert_value_to_number(right, operator)?,
             ),
             Token::LessEqual => Value::Boolean(
-                left.convert_to_number(operator)? <= right.convert_to_number(operator)?,
+                convert_value_to_number(left, operator)?
+                    <= convert_value_to_number(right, operator)?,
             ),
             Token::EqualEqual => Value::Boolean(left == right),
             Token::BangEqual => Value::Boolean(left != right),
@@ -447,11 +383,6 @@ trait Callable {
     ) -> Result<Value, RuntimeError>;
 }
 
-#[derive(Clone, Copy, Eq, PartialEq, Debug)]
-pub enum BuiltInFunction {
-    Clock,
-}
-
 impl Callable for BuiltInFunction {
     fn arity(&self) -> u8 {
         match self {
@@ -476,30 +407,6 @@ impl Callable for BuiltInFunction {
         }
     }
 }
-
-impl Display for BuiltInFunction {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::Clock => write!(f, "clock"),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct LoxFunction {
-    name: TokenInfo,
-    parameters: Vec<TokenInfo>,
-    body: Vec<Stmt>,
-    closure: Rc<RefCell<Environment>>,
-}
-
-impl PartialEq for LoxFunction {
-    fn eq(&self, other: &Self) -> bool {
-        std::ptr::eq(self, other)
-    }
-}
-
-impl Eq for LoxFunction {}
 
 impl Callable for LoxFunction {
     fn arity(&self) -> u8 {
@@ -541,8 +448,9 @@ impl Callable for LoxFunction {
     }
 }
 
+// TODO this struct should be private
 #[derive(Debug)]
-struct Environment {
+pub struct Environment {
     variables: HashMap<String, Value>,
     enclosing_env: Option<Rc<RefCell<Self>>>,
 }
