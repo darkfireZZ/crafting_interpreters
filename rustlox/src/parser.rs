@@ -1,7 +1,8 @@
 use {
     crate::{
         data_types::Value,
-        scanner::Scanner,
+        error_group::ErrorGroup,
+        scanner::Tokenization,
         syntax_tree::{Expr, FunctionDefinition, Stmt, SyntaxTree, Variable},
         token::{Token, TokenInfo},
     },
@@ -10,6 +11,10 @@ use {
         iter::Peekable,
     },
 };
+
+pub fn parse(tokens: Tokenization) -> Result<SyntaxTree, ErrorGroup<ParseError>> {
+    Parser::new(tokens).parse()
+}
 
 #[derive(Clone, Copy, Debug)]
 enum ParseErrorType {
@@ -66,9 +71,8 @@ impl Display for ParseErrorType {
     }
 }
 
-// TODO unify this error type with SourceError
 #[derive(Debug)]
-struct ParseError {
+pub struct ParseError {
     ty: ParseErrorType,
     token: Option<TokenInfo>,
 }
@@ -83,41 +87,33 @@ impl Display for ParseError {
     }
 }
 
-fn report_parse_error(err: ParseError) {
-    eprintln!("{}", err);
-}
-
 #[derive(Debug)]
-pub struct Parser<'a> {
-    scanner: Peekable<Scanner<'a>>,
+struct Parser {
+    tokens: Peekable<<Vec<TokenInfo> as IntoIterator>::IntoIter>,
+    errors: ErrorGroup<ParseError>,
 }
 
-impl<'a> Parser<'a> {
-    pub fn new(scanner: Scanner<'a>) -> Self {
+impl Parser {
+    fn new(tokens: Tokenization) -> Self {
         Self {
-            scanner: scanner.peekable(),
+            tokens: tokens.tokens.into_iter().peekable(),
+            errors: ErrorGroup::new(),
         }
     }
 
-    pub fn parse(&mut self) -> Option<SyntaxTree> {
+    fn parse(mut self) -> Result<SyntaxTree, ErrorGroup<ParseError>> {
         let mut stmts = Vec::new();
-        let mut had_error = false;
-        while self.scanner.peek().is_some() {
+        while self.peek().is_some() {
             match self.parse_declaration() {
                 Ok(stmt) => stmts.push(stmt),
                 Err(err) => {
-                    report_parse_error(err);
+                    self.errors.add(err);
                     self.synchronize();
-                    had_error = true;
                 }
             }
         }
 
-        if had_error {
-            None
-        } else {
-            Some(SyntaxTree { program: stmts })
-        }
+        self.errors.error_or_else(|| SyntaxTree { program: stmts })
     }
 
     fn parse_declaration(&mut self) -> Result<Stmt, ParseError> {
@@ -150,7 +146,6 @@ impl<'a> Parser<'a> {
 
         let mut parameters = Vec::new();
         if self
-            .scanner
             .peek()
             .filter(|token| token.token == Token::RightParen)
             .is_none()
@@ -178,18 +173,18 @@ impl<'a> Parser<'a> {
         )?;
         let body = self.parse_block()?;
 
-        if parameters.len() < 255 {
-            Ok(Stmt::FunctionDeclaration(FunctionDefinition {
-                name: function_name,
-                parameters,
-                body,
-            }))
-        } else {
-            Err(ParseError {
+        if parameters.len() >= 255 {
+            self.errors.add(ParseError {
                 ty: ParseErrorType::TooManyFunctionParameters,
                 token: Some(closing_paren),
-            })
+            });
         }
+
+        Ok(Stmt::FunctionDeclaration(FunctionDefinition {
+            name: function_name,
+            parameters,
+            body,
+        }))
     }
 
     fn parse_statement(&mut self) -> Result<Stmt, ParseError> {
@@ -197,7 +192,6 @@ impl<'a> Parser<'a> {
             self.parse_print_statement()
         } else if let Some(return_keyword) = self.matches(|token| token == Token::Return) {
             let return_value = if self
-                .scanner
                 .peek()
                 .is_some_and(|token| token.token != Token::Semicolon)
             {
@@ -232,7 +226,6 @@ impl<'a> Parser<'a> {
     fn parse_block(&mut self) -> Result<Vec<Stmt>, ParseError> {
         let mut stmts = Vec::new();
         while self
-            .scanner
             .peek()
             .is_some_and(|token| token.token != Token::RightBrace)
         {
@@ -297,7 +290,6 @@ impl<'a> Parser<'a> {
             Some(self.parse_expression_statement()?)
         };
         let condition = if self
-            .scanner
             .peek()
             .is_some_and(|token| token.token == Token::Semicolon)
         {
@@ -307,7 +299,6 @@ impl<'a> Parser<'a> {
         };
         self.try_consume(Token::Semicolon, ParseErrorType::MissingSemicolon)?;
         let increment = if self
-            .scanner
             .peek()
             .is_some_and(|token| token.token != Token::RightParen)
         {
@@ -504,7 +495,6 @@ impl<'a> Parser<'a> {
     ) -> Result<Expr, ParseError> {
         let mut arguments = Vec::new();
         if self
-            .scanner
             .peek()
             .filter(|token| token.token == Token::RightParen)
             .is_none()
@@ -561,9 +551,17 @@ impl<'a> Parser<'a> {
         } else {
             Err(ParseError {
                 ty: ParseErrorType::ExpectedExpression,
-                token: self.scanner.peek().cloned(),
+                token: self.peek().cloned(),
             })
         }
+    }
+
+    fn advance(&mut self) -> Option<TokenInfo> {
+        self.tokens.next()
+    }
+
+    fn peek(&mut self) -> Option<&TokenInfo> {
+        self.tokens.peek()
     }
 
     fn try_consume(
@@ -571,9 +569,9 @@ impl<'a> Parser<'a> {
         token: Token,
         err_ty: ParseErrorType,
     ) -> Result<TokenInfo, ParseError> {
-        let next = self.scanner.peek();
+        let next = self.peek();
         match next {
-            Some(next_token) if next_token.token == token => Ok(self.scanner.next().unwrap()),
+            Some(next_token) if next_token.token == token => Ok(self.advance().unwrap()),
             _ => Err(ParseError {
                 ty: err_ty,
                 token: next.cloned(),
@@ -582,16 +580,16 @@ impl<'a> Parser<'a> {
     }
 
     fn matches<F: FnOnce(Token) -> bool>(&mut self, is_match: F) -> Option<TokenInfo> {
-        if self.scanner.peek().is_some_and(|next| is_match(next.token)) {
-            self.scanner.next()
+        if self.peek().is_some_and(|next| is_match(next.token)) {
+            self.advance()
         } else {
             None
         }
     }
 
     fn synchronize(&mut self) {
-        self.scanner.next();
-        while let Some(next) = self.scanner.peek() {
+        self.advance();
+        while let Some(next) = self.peek() {
             match next.token {
                 Token::Class
                 | Token::Fun
@@ -604,11 +602,11 @@ impl<'a> Parser<'a> {
                     return;
                 }
                 Token::Semicolon => {
-                    self.scanner.next();
+                    self.advance();
                     return;
                 }
                 _ => {
-                    self.scanner.next();
+                    self.advance();
                 }
             }
         }

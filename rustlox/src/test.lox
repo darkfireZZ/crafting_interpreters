@@ -1,15 +1,9 @@
-fun makeCounter() {
-  var i = 0;
-  fun count() {
-    i = i + 1;
-    print i;
-  }
 
-  return count;
-}
+// Error, variable declarations are no expressions
+var outer = (var inner = "oops");
 
-var counter = makeCounter();
-counter(); // "1".
-counter(); // "2".
+// Error, no empty statements allowed
+;
 
-return "This should cause an error";
+// Error, function definition without body
+fun nobody()

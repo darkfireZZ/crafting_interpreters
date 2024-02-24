@@ -1,8 +1,10 @@
 use {
     crate::{
+        error_group::ErrorGroup,
         eval::{Interpreter, RuntimeError},
-        parser::Parser,
-        scanner::Scanner,
+        parser::ParseError,
+        resolver::ResolutionError,
+        scanner::TokenizationError,
     },
     std::{
         fmt::{self, Display},
@@ -11,74 +13,57 @@ use {
     },
 };
 
-mod data_types;
+mod error_group;
+
 mod eval;
 mod parser;
-mod resolution;
+mod resolver;
 mod scanner;
+
+mod data_types;
 mod syntax_tree;
 mod token;
 
 #[derive(Debug)]
 enum InterpreterError {
-    RuntimeError(RuntimeError),
+    Tokenization(ErrorGroup<TokenizationError>),
+    Parsing(ErrorGroup<ParseError>),
+    Resolution(ResolutionError),
+    Runtime(RuntimeError),
 }
 
-impl fmt::Display for InterpreterError {
+impl Display for InterpreterError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::RuntimeError(err) => err.fmt(f),
+            Self::Tokenization(err) => err.fmt(f),
+            Self::Parsing(err) => err.fmt(f),
+            Self::Resolution(err) => err.fmt(f),
+            Self::Runtime(err) => err.fmt(f),
         }
     }
 }
 
-impl std::error::Error for InterpreterError {}
+impl From<ErrorGroup<TokenizationError>> for InterpreterError {
+    fn from(errors: ErrorGroup<TokenizationError>) -> Self {
+        Self::Tokenization(errors)
+    }
+}
+
+impl From<ErrorGroup<ParseError>> for InterpreterError {
+    fn from(errors: ErrorGroup<ParseError>) -> Self {
+        Self::Parsing(errors)
+    }
+}
+impl From<ResolutionError> for InterpreterError {
+    fn from(err: ResolutionError) -> Self {
+        Self::Resolution(err)
+    }
+}
 
 impl From<RuntimeError> for InterpreterError {
     fn from(err: RuntimeError) -> Self {
-        Self::RuntimeError(err)
+        Self::Runtime(err)
     }
-}
-
-#[derive(Debug)]
-struct SourceError {
-    ty: SourceErrorType,
-    line: usize,
-}
-
-impl Display for SourceError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "[line {}] Error: {}", self.line, self.ty)
-    }
-}
-
-impl std::error::Error for SourceError {}
-
-#[derive(Debug)]
-enum SourceErrorType {
-    UnexpectedCharacter(char),
-    UnterminatedStringLiteral,
-    UnterminatedMultilineComment,
-}
-
-impl Display for SourceErrorType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::UnexpectedCharacter(c) => {
-                write!(f, "Unexpected character \"{}\"", c.escape_default())
-            }
-            Self::UnterminatedStringLiteral => {
-                write!(f, "Unterminated string literal")
-            }
-            Self::UnterminatedMultilineComment => {
-                write!(f, "Unterminated multiline comment")
-            }
-        }
-    }
-}
-
-fn report_error(err: SourceError) {
-    eprintln!("{}", err);
 }
 
 fn main() -> ExitCode {
@@ -143,13 +128,9 @@ fn run_file(script_name: &str) -> io::Result<()> {
 }
 
 fn run(interpreter: &mut Interpreter, source: &str) -> Result<(), InterpreterError> {
-    let scanner = Scanner::new(source);
-    let mut parser = Parser::new(scanner);
-    // TODO don't unwrap here
-    let mut syntax_tree = parser.parse().unwrap();
-    // TODO don't unwrap here
-    resolution::resolve(&mut syntax_tree).unwrap();
-    interpreter
-        .eval(&syntax_tree)
-        .map_err(InterpreterError::from)
+    let tokens = scanner::tokenize(source)?;
+    let mut syntax_tree = parser::parse(tokens)?;
+    resolver::resolve(&mut syntax_tree)?;
+    interpreter.eval(&syntax_tree)?;
+    Ok(())
 }

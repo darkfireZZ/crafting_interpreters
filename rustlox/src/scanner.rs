@@ -1,7 +1,28 @@
-use crate::{
-    token::{Token, TokenInfo},
-    SourceError, SourceErrorType,
+use {
+    crate::{
+        error_group::ErrorGroup,
+        token::{Token, TokenInfo},
+    },
+    std::fmt::{self, Display},
 };
+
+pub fn tokenize(src: &str) -> Result<Tokenization, ErrorGroup<TokenizationError>> {
+    let mut tokens = Vec::new();
+    let mut errors = ErrorGroup::new();
+
+    for result in Scanner::new(src) {
+        match result {
+            Ok(token) => tokens.push(token),
+            Err(error) => errors.add(error),
+        }
+    }
+
+    errors.error_or_else(|| Tokenization { tokens })
+}
+
+pub struct Tokenization {
+    pub tokens: Vec<TokenInfo>,
+}
 
 fn is_identifier_start_char(c: u8) -> bool {
     c.is_ascii_alphabetic() || c == b'_'
@@ -30,7 +51,7 @@ fn identifier_or_keyword_to_token(identifier: &str) -> Token {
 }
 
 #[derive(Debug)]
-pub struct Scanner<'a> {
+struct Scanner<'a> {
     source: &'a str,
     current_line: usize,
 }
@@ -55,7 +76,7 @@ impl<'a> Scanner<'a> {
         }
     }
 
-    fn consume_string_literal(&mut self) -> Result<TokenInfo, SourceError> {
+    fn consume_string_literal(&mut self) -> Result<TokenInfo, TokenizationError> {
         debug_assert_eq!(self.source.as_bytes()[0], b'"');
 
         // Already count opening and closing double quotes.
@@ -74,8 +95,8 @@ impl<'a> Scanner<'a> {
 
         self.source = "";
 
-        Err(SourceError {
-            ty: SourceErrorType::UnterminatedStringLiteral,
+        Err(TokenizationError {
+            ty: TokenizationErrorType::UnterminatedStringLiteral,
             line: self.current_line,
         })
     }
@@ -121,7 +142,7 @@ impl<'a> Scanner<'a> {
         self.consume(token, end_index)
     }
 
-    fn consume_multiline_comment(&mut self) {
+    fn consume_multiline_comment(&mut self) -> Result<(), TokenizationError> {
         debug_assert_eq!(self.source.as_bytes()[0], b'/');
         debug_assert_eq!(self.source.as_bytes()[1], b'*');
 
@@ -140,7 +161,7 @@ impl<'a> Scanner<'a> {
                 }
                 b'/' if prev_is_star => {
                     self.source = &self.source[len..];
-                    return;
+                    return Ok(());
                 }
                 _ => {
                     prev_is_star = false;
@@ -148,56 +169,58 @@ impl<'a> Scanner<'a> {
             }
         }
 
-        crate::report_error(SourceError {
-            ty: SourceErrorType::UnterminatedMultilineComment,
+        self.source = "";
+
+        Err(TokenizationError {
+            ty: TokenizationErrorType::UnterminatedMultilineComment,
             line: self.current_line,
-        });
+        })
     }
 }
 
 impl Iterator for Scanner<'_> {
-    type Item = TokenInfo;
+    type Item = Result<TokenInfo, TokenizationError>;
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             if let Some(next_byte) = self.source.as_bytes().first() {
                 match next_byte {
-                    b'(' => return Some(self.consume(Token::LeftParen, 1)),
-                    b')' => return Some(self.consume(Token::RightParen, 1)),
-                    b'{' => return Some(self.consume(Token::LeftBrace, 1)),
-                    b'}' => return Some(self.consume(Token::RightBrace, 1)),
-                    b',' => return Some(self.consume(Token::Comma, 1)),
-                    b'.' => return Some(self.consume(Token::Dot, 1)),
-                    b'-' => return Some(self.consume(Token::Minus, 1)),
-                    b'+' => return Some(self.consume(Token::Plus, 1)),
-                    b';' => return Some(self.consume(Token::Semicolon, 1)),
-                    b'*' => return Some(self.consume(Token::Star, 1)),
+                    b'(' => return Some(Ok(self.consume(Token::LeftParen, 1))),
+                    b')' => return Some(Ok(self.consume(Token::RightParen, 1))),
+                    b'{' => return Some(Ok(self.consume(Token::LeftBrace, 1))),
+                    b'}' => return Some(Ok(self.consume(Token::RightBrace, 1))),
+                    b',' => return Some(Ok(self.consume(Token::Comma, 1))),
+                    b'.' => return Some(Ok(self.consume(Token::Dot, 1))),
+                    b'-' => return Some(Ok(self.consume(Token::Minus, 1))),
+                    b'+' => return Some(Ok(self.consume(Token::Plus, 1))),
+                    b';' => return Some(Ok(self.consume(Token::Semicolon, 1))),
+                    b'*' => return Some(Ok(self.consume(Token::Star, 1))),
                     b'!' => {
-                        return Some(if self.source.as_bytes().get(1) == Some(&b'=') {
+                        return Some(Ok(if self.source.as_bytes().get(1) == Some(&b'=') {
                             self.consume(Token::BangEqual, 2)
                         } else {
                             self.consume(Token::Bang, 1)
-                        })
+                        }))
                     }
                     b'=' => {
-                        return Some(if self.source.as_bytes().get(1) == Some(&b'=') {
+                        return Some(Ok(if self.source.as_bytes().get(1) == Some(&b'=') {
                             self.consume(Token::EqualEqual, 2)
                         } else {
                             self.consume(Token::Equal, 1)
-                        })
+                        }))
                     }
                     b'<' => {
-                        return Some(if self.source.as_bytes().get(1) == Some(&b'=') {
+                        return Some(Ok(if self.source.as_bytes().get(1) == Some(&b'=') {
                             self.consume(Token::LessEqual, 2)
                         } else {
                             self.consume(Token::Less, 1)
-                        })
+                        }))
                     }
                     b'>' => {
-                        return Some(if self.source.as_bytes().get(1) == Some(&b'=') {
+                        return Some(Ok(if self.source.as_bytes().get(1) == Some(&b'=') {
                             self.consume(Token::GreaterEqual, 2)
                         } else {
                             self.consume(Token::Greater, 1)
-                        })
+                        }))
                     }
                     b'/' => match self.source.as_bytes().get(1) {
                         Some(&b'/') => {
@@ -205,18 +228,19 @@ impl Iterator for Scanner<'_> {
                                 self.source.find('\n').unwrap_or(self.source.len());
                             self.source = &self.source[end_of_comment..];
                         }
-                        Some(&b'*') => self.consume_multiline_comment(),
-                        _ => return Some(self.consume(Token::Slash, 1)),
-                    },
-                    b'"' => match self.consume_string_literal() {
-                        Ok(token) => {
-                            return Some(token);
+                        Some(&b'*') => {
+                            if let Err(error) = self.consume_multiline_comment() {
+                                return Some(Err(error));
+                            }
                         }
-                        Err(error) => crate::report_error(error),
+                        _ => return Some(Ok(self.consume(Token::Slash, 1))),
                     },
-                    digit if digit.is_ascii_digit() => return Some(self.consume_number_literal()),
+                    b'"' => return Some(self.consume_string_literal()),
+                    digit if digit.is_ascii_digit() => {
+                        return Some(Ok(self.consume_number_literal()))
+                    }
                     c if is_identifier_start_char(*c) => {
-                        return Some(self.consume_identifier_or_keyword())
+                        return Some(Ok(self.consume_identifier_or_keyword()))
                     }
                     b'\n' => {
                         self.current_line += 1;
@@ -229,15 +253,51 @@ impl Iterator for Scanner<'_> {
                         let unexpected_char =
                             self.source.chars().next().expect("source is non-empty");
                         self.source = &self.source[unexpected_char.len_utf8()..];
-                        let error = SourceError {
-                            ty: SourceErrorType::UnexpectedCharacter(unexpected_char),
+                        return Some(Err(TokenizationError {
+                            ty: TokenizationErrorType::UnexpectedCharacter(unexpected_char),
                             line: self.current_line,
-                        };
-                        crate::report_error(error);
+                        }));
                     }
                 }
             } else {
                 return None;
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct TokenizationError {
+    ty: TokenizationErrorType,
+    line: usize,
+}
+
+impl Display for TokenizationError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "[line {}] Error: {}", self.line, self.ty)
+    }
+}
+
+impl std::error::Error for TokenizationError {}
+
+#[derive(Debug)]
+enum TokenizationErrorType {
+    UnexpectedCharacter(char),
+    UnterminatedStringLiteral,
+    UnterminatedMultilineComment,
+}
+
+impl Display for TokenizationErrorType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::UnexpectedCharacter(c) => {
+                write!(f, "Unexpected character \"{}\"", c.escape_default())
+            }
+            Self::UnterminatedStringLiteral => {
+                write!(f, "Unterminated string literal")
+            }
+            Self::UnterminatedMultilineComment => {
+                write!(f, "Unterminated multiline comment")
             }
         }
     }
