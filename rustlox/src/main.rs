@@ -17,6 +17,7 @@ mod parser;
 mod scanner;
 mod syntax_tree;
 mod token;
+mod var_resolution;
 
 #[derive(Debug)]
 enum InterpreterError {
@@ -145,6 +146,10 @@ fn run(interpreter: &mut Interpreter, source: &str) -> Result<(), InterpreterErr
     let scanner = Scanner::new(source);
     let mut parser = Parser::new(scanner);
     // TODO don't unwrap here
-    let stmts = parser.parse().unwrap();
-    interpreter.eval(&stmts).map_err(InterpreterError::from)
+    let mut syntax_tree = parser.parse().unwrap();
+    // TODO don't unwrap here
+    var_resolution::resolve_variables(&mut syntax_tree).unwrap();
+    interpreter
+        .eval(&syntax_tree)
+        .map_err(InterpreterError::from)
 }

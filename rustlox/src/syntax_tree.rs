@@ -1,16 +1,17 @@
 use crate::{data_types::Value, token::TokenInfo};
 
 #[derive(Clone, Debug)]
+pub struct SyntaxTree {
+    pub program: Vec<Stmt>,
+}
+
+#[derive(Clone, Debug)]
 pub enum Stmt {
     VariableDeclaration {
         name: TokenInfo,
         initializer: Option<Expr>,
     },
-    FunctionDeclaration {
-        name: TokenInfo,
-        parameters: Vec<TokenInfo>,
-        body: Vec<Stmt>,
-    },
+    FunctionDeclaration(FunctionDefinition),
     Expr(Box<Expr>),
     Print(Box<Expr>),
     Return {
@@ -47,11 +48,9 @@ pub enum Expr {
         right: Box<Expr>,
     },
     Grouping(Box<Expr>),
-    Variable {
-        name: TokenInfo,
-    },
+    Variable(Variable),
     Assignment {
-        name: TokenInfo,
+        variable: Variable,
         value: Box<Expr>,
     },
     FunctionCall {
@@ -60,4 +59,35 @@ pub enum Expr {
         opening_paren: TokenInfo,
         closing_paren: TokenInfo,
     },
+}
+
+#[derive(Clone, Debug)]
+pub struct FunctionDefinition {
+    pub name: TokenInfo,
+    pub parameters: Vec<TokenInfo>,
+    pub body: Vec<Stmt>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Variable {
+    name: TokenInfo,
+    depth: Option<usize>,
+}
+
+impl Variable {
+    pub fn new(name: TokenInfo) -> Self {
+        Self { name, depth: None }
+    }
+
+    pub fn depth(&self) -> Option<usize> {
+        self.depth
+    }
+
+    pub fn name(&self) -> &TokenInfo {
+        &self.name
+    }
+
+    pub fn resolve_depth(&mut self, depth: usize) {
+        self.depth = Some(depth);
+    }
 }

@@ -2,8 +2,7 @@ use {
     crate::{
         // TODO ideally, there should be no reference to eval in this module
         eval::Environment,
-        syntax_tree::Stmt,
-        token::TokenInfo,
+        syntax_tree::FunctionDefinition,
     },
     std::{
         cell::RefCell,
@@ -82,8 +81,8 @@ impl Display for Value {
             Self::Boolean(val) => val.fmt(f),
             Self::Number(val) => val.fmt(f),
             Self::String(val) => val.fmt(f),
-            Self::BuiltInFunction(function) => write!(f, "<built-in function \"{}\">", function),
-            Self::LoxFunction(function) => write!(f, "<fn {} >", function.name),
+            Self::BuiltInFunction(function) => write!(f, "<built-in fn {}>", function),
+            Self::LoxFunction(function) => write!(f, "<fn {} >", function.definition.name),
         }
     }
 }
@@ -103,9 +102,7 @@ impl Display for BuiltInFunction {
 
 #[derive(Debug)]
 pub struct LoxFunction {
-    pub name: TokenInfo,
-    pub parameters: Vec<TokenInfo>,
-    pub body: Vec<Stmt>,
+    pub definition: FunctionDefinition,
     pub closure: Rc<RefCell<Environment>>,
 }
 

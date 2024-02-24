@@ -1,7 +1,7 @@
 use {
     crate::{
         data_types::{BuiltInFunction, LoxFunction, Value, ValueType},
-        syntax_tree::{Expr, Stmt},
+        syntax_tree::{Expr, Stmt, SyntaxTree, Variable},
         token::{Token, TokenInfo},
     },
     std::{
@@ -85,6 +85,7 @@ fn convert_value_to_number(value: Value, error_token: &TokenInfo) -> Result<f64,
 
 #[derive(Debug)]
 pub struct Interpreter {
+    globals: Rc<RefCell<Environment>>,
     current_env: Rc<RefCell<Environment>>,
 }
 
@@ -95,13 +96,19 @@ impl Interpreter {
             String::from("clock"),
             Value::BuiltInFunction(BuiltInFunction::Clock),
         )]);
+        let globals = Rc::new(RefCell::new(Environment::new_global(globals)));
         Self {
-            current_env: Rc::new(RefCell::new(Environment::new_global(globals))),
+            current_env: Rc::clone(&globals),
+            globals,
         }
     }
 
-    pub fn eval(&mut self, program: &[Stmt]) -> Result<(), RuntimeError> {
-        for stmt in program {
+    pub fn eval(&mut self, syntax_tree: &SyntaxTree) -> Result<(), RuntimeError> {
+        self.eval_stmts(&syntax_tree.program)
+    }
+
+    fn eval_stmts(&mut self, stmts: &[Stmt]) -> Result<(), RuntimeError> {
+        for stmt in stmts {
             self.eval_stmt(stmt)?;
         }
         Ok(())
@@ -125,28 +132,20 @@ impl Interpreter {
                     .borrow_mut()
                     .define_variable(name.lexeme.to_owned(), initializer);
             }
-            Stmt::FunctionDeclaration {
-                name,
-                parameters,
-                body,
-            } => {
-                let var_name = name.lexeme.to_owned();
-                let var_value = Value::LoxFunction(Rc::new(LoxFunction {
-                    name: name.clone(),
-                    parameters: parameters.to_vec(),
-                    body: body.to_vec(),
+            Stmt::FunctionDeclaration(function) => {
+                let name = function.name.lexeme.to_owned();
+                let value = Value::LoxFunction(Rc::new(LoxFunction {
+                    definition: function.clone(),
                     closure: Rc::clone(&self.current_env),
                 }));
-                self.current_env
-                    .borrow_mut()
-                    .define_variable(var_name, var_value)
+                self.current_env.borrow_mut().define_variable(name, value)
             }
             Stmt::Block(stmts) => {
                 let mut block_env = Rc::new(RefCell::new(Environment::new_inside(Rc::clone(
                     &self.current_env,
                 ))));
                 std::mem::swap(&mut self.current_env, &mut block_env);
-                let result = self.eval(stmts);
+                let result = self.eval_stmts(stmts);
                 std::mem::swap(&mut self.current_env, &mut block_env);
                 result?;
             }
@@ -196,12 +195,10 @@ impl Interpreter {
                 right,
             } => self.eval_logical(operator, left, right),
             Expr::Grouping(expr) => self.eval_expr(expr),
-            Expr::Variable { name } => self.current_env.borrow().get_variable(name),
-            Expr::Assignment { name, value } => {
+            Expr::Variable(variable) => self.look_up_variable(variable),
+            Expr::Assignment { variable, value } => {
                 let value = self.eval_expr(value)?;
-                self.current_env
-                    .borrow_mut()
-                    .set_variable(name, value.clone())?;
+                self.assign_to_variable(variable, value.clone())?;
                 Ok(value)
             }
             Expr::FunctionCall {
@@ -372,6 +369,32 @@ impl Interpreter {
             })
         }
     }
+
+    fn look_up_variable(&self, variable: &Variable) -> Result<Value, RuntimeError> {
+        if let Some(depth) = variable.depth() {
+            self.current_env
+                .borrow()
+                .get_variable_at(variable.name(), depth)
+        } else {
+            self.globals.borrow().get_variable(variable.name())
+        }
+    }
+
+    fn assign_to_variable(
+        &mut self,
+        variable: &Variable,
+        value: Value,
+    ) -> Result<(), RuntimeError> {
+        if let Some(depth) = variable.depth() {
+            self.current_env
+                .borrow_mut()
+                .set_variable_at(variable.name(), depth, value)
+        } else {
+            self.globals
+                .borrow_mut()
+                .set_variable(variable.name(), value)
+        }
+    }
 }
 
 trait Callable {
@@ -410,7 +433,7 @@ impl Callable for BuiltInFunction {
 
 impl Callable for LoxFunction {
     fn arity(&self) -> u8 {
-        u8::try_from(self.parameters.len())
+        u8::try_from(self.definition.parameters.len())
             .expect("parser will only allows declarations with at most 255 parameters")
     }
 
@@ -420,6 +443,7 @@ impl Callable for LoxFunction {
         arguments: Vec<Value>,
     ) -> Result<Value, RuntimeError> {
         let arguments = self
+            .definition
             .parameters
             .iter()
             .map(|token| token.lexeme.clone())
@@ -432,7 +456,7 @@ impl Callable for LoxFunction {
         }));
 
         std::mem::swap(&mut interpreter.current_env, &mut function_env);
-        let result = interpreter.eval(&self.body);
+        let result = interpreter.eval_stmts(&self.definition.body);
         std::mem::swap(&mut interpreter.current_env, &mut function_env);
 
         match result {
@@ -474,30 +498,55 @@ impl Environment {
         self.variables.insert(name, value);
     }
 
-    fn get_variable(&self, name: &TokenInfo) -> Result<Value, RuntimeError> {
-        if let Some(var_ref) = self.variables.get(&name.lexeme) {
-            Ok(var_ref.clone())
-        } else if let Some(enclosing_env) = self.enclosing_env.as_ref() {
-            enclosing_env.borrow().get_variable(name)
+    fn get_variable_at(&self, name: &TokenInfo, depth: usize) -> Result<Value, RuntimeError> {
+        if depth == 0 {
+            self.get_variable(name)
         } else {
-            Err(RuntimeError {
+            self.enclosing_env
+                .as_ref()
+                .expect("variable resolution guarantees there is an environment at the given depth")
+                .borrow()
+                .get_variable_at(name, depth - 1)
+        }
+    }
+
+    fn get_variable(&self, name: &TokenInfo) -> Result<Value, RuntimeError> {
+        self.variables
+            .get(&name.lexeme)
+            .cloned()
+            .ok_or_else(|| RuntimeError {
                 ty: RuntimeErrorType::UndefinedVariable,
                 token: name.clone(),
             })
+    }
+
+    fn set_variable_at(
+        &mut self,
+        name: &TokenInfo,
+        depth: usize,
+        value: Value,
+    ) -> Result<(), RuntimeError> {
+        if depth == 0 {
+            self.set_variable(name, value)
+        } else {
+            self.enclosing_env
+                .as_mut()
+                .expect("variable resolution guarantees there is an environment at the given depth")
+                .borrow_mut()
+                .set_variable_at(name, depth - 1, value)
         }
     }
 
     fn set_variable(&mut self, name: &TokenInfo, value: Value) -> Result<(), RuntimeError> {
-        if let Some(var_ref) = self.variables.get_mut(&name.lexeme) {
-            *var_ref = value;
-            Ok(())
-        } else if let Some(enclosing_env) = self.enclosing_env.as_mut() {
-            enclosing_env.borrow_mut().set_variable(name, value)
-        } else {
-            Err(RuntimeError {
+        match self.variables.get_mut(&name.lexeme) {
+            Some(variable) => {
+                *variable = value;
+                Ok(())
+            }
+            None => Err(RuntimeError {
                 ty: RuntimeErrorType::UndefinedVariable,
                 token: name.clone(),
-            })
+            }),
         }
     }
 }

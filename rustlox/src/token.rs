@@ -1,6 +1,6 @@
 use std::fmt::{self, Display};
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Token {
     // Single-character tokens
     LeftParen,
@@ -49,7 +49,7 @@ pub enum Token {
     While,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct TokenInfo {
     pub token: Token,
     pub lexeme: String,

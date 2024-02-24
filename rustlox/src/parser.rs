@@ -2,7 +2,7 @@ use {
     crate::{
         data_types::Value,
         scanner::Scanner,
-        syntax_tree::{Expr, Stmt},
+        syntax_tree::{Expr, FunctionDefinition, Stmt, SyntaxTree, Variable},
         token::{Token, TokenInfo},
     },
     std::{
@@ -99,7 +99,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn parse(&mut self) -> Option<Vec<Stmt>> {
+    pub fn parse(&mut self) -> Option<SyntaxTree> {
         let mut stmts = Vec::new();
         let mut had_error = false;
         while self.scanner.peek().is_some() {
@@ -116,7 +116,7 @@ impl<'a> Parser<'a> {
         if had_error {
             None
         } else {
-            Some(stmts)
+            Some(SyntaxTree { program: stmts })
         }
     }
 
@@ -179,11 +179,11 @@ impl<'a> Parser<'a> {
         let body = self.parse_block()?;
 
         if parameters.len() < 255 {
-            Ok(Stmt::FunctionDeclaration {
+            Ok(Stmt::FunctionDeclaration(FunctionDefinition {
                 name: function_name,
                 parameters,
                 body,
-            })
+            }))
         } else {
             Err(ParseError {
                 ty: ParseErrorType::TooManyFunctionParameters,
@@ -356,9 +356,9 @@ impl<'a> Parser<'a> {
         match self.matches(|token| token == Token::Equal) {
             Some(equal) => {
                 let value = self.parse_assignment()?;
-                if let Expr::Variable { name } = left {
+                if let Expr::Variable(variable) = left {
                     Ok(Expr::Assignment {
-                        name,
+                        variable,
                         value: Box::new(value),
                     })
                 } else {
@@ -557,7 +557,7 @@ impl<'a> Parser<'a> {
             self.try_consume(Token::RightParen, ParseErrorType::UnclosedGrouping)?;
             Ok(Expr::Grouping(Box::new(expr)))
         } else if let Some(token) = self.matches(|token| token == Token::Identifier) {
-            Ok(Expr::Variable { name: token })
+            Ok(Expr::Variable(Variable::new(token)))
         } else {
             Err(ParseError {
                 ty: ParseErrorType::ExpectedExpression,
