@@ -9,8 +9,8 @@ use {
     },
 };
 
-pub fn resolve_variables(syntax_tree: &mut SyntaxTree) -> Result<(), ResolutionError> {
-    VariableResolver::new().resolve(syntax_tree)
+pub fn resolve(syntax_tree: &mut SyntaxTree) -> Result<(), ResolutionError> {
+    Resolver::new().resolve(syntax_tree)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -19,14 +19,23 @@ enum ResolutionStatus {
     Defined,
 }
 
-#[derive(Debug)]
-struct VariableResolver {
-    scopes: Vec<HashMap<String, ResolutionStatus>>,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FunctionType {
+    Function,
 }
 
-impl VariableResolver {
+#[derive(Debug)]
+struct Resolver {
+    scopes: Vec<HashMap<String, ResolutionStatus>>,
+    current_function: Option<FunctionType>,
+}
+
+impl Resolver {
     fn new() -> Self {
-        Self { scopes: Vec::new() }
+        Self {
+            scopes: Vec::new(),
+            current_function: None,
+        }
     }
 
     fn resolve(&mut self, syntax_tree: &mut SyntaxTree) -> Result<(), ResolutionError> {
@@ -61,7 +70,14 @@ impl VariableResolver {
                 self.resolve_function(function)?;
             }
             Stmt::Print(expr) => self.resolve_expr(expr)?,
-            Stmt::Return { value, .. } => {
+            Stmt::Return { keyword, value } => {
+                if self.current_function.is_none() {
+                    return Err(ResolutionError {
+                        ty: ResolutionErrorType::ReturnFromGlobalScope,
+                        token: keyword.clone(),
+                    });
+                }
+
                 if let Some(value) = value {
                     self.resolve_expr(value)?;
                 }
@@ -133,6 +149,8 @@ impl VariableResolver {
         &mut self,
         function: &mut FunctionDefinition,
     ) -> Result<(), ResolutionError> {
+        let enclosing_func_type = self.current_function;
+        self.current_function = Some(FunctionType::Function);
         self.begin_scope();
         for param in &function.parameters {
             self.declare(param)?;
@@ -140,6 +158,7 @@ impl VariableResolver {
         }
         self.resolve_stmts(&mut function.body)?;
         self.end_scope();
+        self.current_function = enclosing_func_type;
         Ok(())
     }
 
@@ -205,6 +224,7 @@ impl Display for ResolutionError {
 #[derive(Clone, Debug)]
 enum ResolutionErrorType {
     ReadLocalVarInItsOwnInitializer,
+    ReturnFromGlobalScope,
     MultipleDefinitionsWithSameName,
 }
 
@@ -213,6 +233,9 @@ impl Display for ResolutionErrorType {
         match self {
             Self::ReadLocalVarInItsOwnInitializer => {
                 write!(f, "Cannot read local variable in its own initializer")
+            }
+            Self::ReturnFromGlobalScope => {
+                write!(f, "Cannot return from top-level code")
             }
             Self::MultipleDefinitionsWithSameName => {
                 write!(

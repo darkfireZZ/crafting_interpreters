@@ -14,10 +14,10 @@ use {
 mod data_types;
 mod eval;
 mod parser;
+mod resolution;
 mod scanner;
 mod syntax_tree;
 mod token;
-mod var_resolution;
 
 #[derive(Debug)]
 enum InterpreterError {
@@ -148,7 +148,7 @@ fn run(interpreter: &mut Interpreter, source: &str) -> Result<(), InterpreterErr
     // TODO don't unwrap here
     let mut syntax_tree = parser.parse().unwrap();
     // TODO don't unwrap here
-    var_resolution::resolve_variables(&mut syntax_tree).unwrap();
+    resolution::resolve(&mut syntax_tree).unwrap();
     interpreter
         .eval(&syntax_tree)
         .map_err(InterpreterError::from)

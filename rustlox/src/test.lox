@@ -11,3 +11,5 @@ fun makeCounter() {
 var counter = makeCounter();
 counter(); // "1".
 counter(); // "2".
+
+return "This should cause an error";
