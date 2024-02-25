@@ -30,4 +30,4 @@ print instance.self_ref.self_ref;
 print instance.serveOn();
 print instance.serveOn;
 
-instance.undefined_field; // should raise an error
+print this; // should raise an error

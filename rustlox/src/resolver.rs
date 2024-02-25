@@ -26,9 +26,15 @@ enum FunctionType {
     Method,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ClassType {
+    Class,
+}
+
 #[derive(Debug)]
 struct Resolver {
     scopes: Vec<HashMap<String, ResolutionStatus>>,
+    current_class: Option<ClassType>,
     current_function: Option<FunctionType>,
     errors: ErrorGroup<ResolutionError>,
 }
@@ -37,6 +43,7 @@ impl Resolver {
     fn new() -> Self {
         Self {
             scopes: Vec::new(),
+            current_class: None,
             current_function: None,
             errors: ErrorGroup::new(),
         }
@@ -74,6 +81,9 @@ impl Resolver {
                 self.resolve_function(function, FunctionType::Function);
             }
             Stmt::ClassDeclaration(class) => {
+                let enclosing_class_type = self.current_class;
+                self.current_class = Some(ClassType::Class);
+
                 self.declare(&class.name);
                 self.define(&class.name);
 
@@ -88,6 +98,8 @@ impl Resolver {
                 }
 
                 self.end_scope();
+
+                self.current_class = enclosing_class_type;
             }
             Stmt::Print(expr) => self.resolve_expr(expr),
             Stmt::Return { keyword, value } => {
@@ -137,7 +149,15 @@ impl Resolver {
                     self.resolve_local(variable);
                 }
             }
-            Expr::This(variable) => self.resolve_local(variable),
+            Expr::This(variable) => {
+                if self.current_class.is_none() {
+                    self.errors.add(ResolutionError {
+                        ty: ResolutionErrorType::ThisKeywordOutsideOfClass,
+                        token: variable.name().clone(),
+                    })
+                }
+                self.resolve_local(variable)
+            }
             Expr::Get { object, .. } => self.resolve_expr(object),
             Expr::Set { object, value, .. } => {
                 self.resolve_expr(value);
@@ -245,6 +265,7 @@ enum ResolutionErrorType {
     ReadLocalVarInItsOwnInitializer,
     ReturnFromGlobalScope,
     MultipleDefinitionsWithSameName,
+    ThisKeywordOutsideOfClass,
 }
 
 impl Display for ResolutionErrorType {
@@ -261,6 +282,9 @@ impl Display for ResolutionErrorType {
                     f,
                     "There is already a variable with this name in this scope"
                 )
+            }
+            Self::ThisKeywordOutsideOfClass => {
+                write!(f, "Cannot use 'this' outside of a class")
             }
         }
     }
