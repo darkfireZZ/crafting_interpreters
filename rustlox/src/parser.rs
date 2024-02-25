@@ -609,6 +609,8 @@ impl Parser {
             Ok(Expr::Grouping(Box::new(expr)))
         } else if let Some(token) = self.matches(|token| token == Token::Identifier) {
             Ok(Expr::Variable(Variable::new(token)))
+        } else if let Some(keyword) = self.matches(|token| token == Token::This) {
+            Ok(Expr::This(Variable::new(keyword)))
         } else {
             Err(ParseError {
                 ty: ParseErrorType::ExpectedExpression,

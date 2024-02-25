@@ -1,7 +1,7 @@
 use {
     crate::{
         // TODO ideally, there should be no reference to eval in this module
-        eval::Environment,
+        eval::{self, Environment},
         syntax_tree::{ClassDefinition, FunctionDefinition},
     },
     std::{
@@ -123,6 +123,7 @@ pub struct LoxFunction {
     pub closure: Rc<RefCell<Environment>>,
 }
 
+// TODO: This equality operation doesn't work correctly on bound functions
 impl PartialEq for LoxFunction {
     fn eq(&self, other: &Self) -> bool {
         std::ptr::eq(self, other)
@@ -153,16 +154,21 @@ pub struct ClassInstance {
 }
 
 impl ClassInstance {
-    pub fn get(&self, property_name: &str) -> Option<Value> {
-        self.properties.get(property_name).cloned().or_else(|| {
-            self.class
-                .methods
-                .get(property_name)
-                .map(|method| Value::LoxFunction(Rc::clone(method)))
-        })
+    pub fn get_property(this: &Rc<RefCell<ClassInstance>>, property_name: &str) -> Option<Value> {
+        this.borrow()
+            .properties
+            .get(property_name)
+            .cloned()
+            .or_else(|| {
+                this.borrow()
+                    .class
+                    .methods
+                    .get(property_name)
+                    .map(|method| Value::LoxFunction(Rc::new(eval::bind_function(this, method))))
+            })
     }
 
-    pub fn set(&mut self, property_name: String, value: Value) {
+    pub fn set_property(&mut self, property_name: String, value: Value) {
         self.properties.insert(property_name, value);
     }
 }

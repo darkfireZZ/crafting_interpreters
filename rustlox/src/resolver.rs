@@ -77,9 +77,17 @@ impl Resolver {
                 self.declare(&class.name);
                 self.define(&class.name);
 
+                self.begin_scope();
+                self.scopes
+                    .last_mut()
+                    .expect("inside class scope")
+                    .insert(String::from("this"), ResolutionStatus::Defined);
+
                 for method in &mut class.methods {
                     self.resolve_function(method, FunctionType::Method);
                 }
+
+                self.end_scope();
             }
             Stmt::Print(expr) => self.resolve_expr(expr),
             Stmt::Return { keyword, value } => {
@@ -129,9 +137,8 @@ impl Resolver {
                     self.resolve_local(variable);
                 }
             }
-            Expr::Get { object, .. } => {
-                self.resolve_expr(object);
-            }
+            Expr::This(variable) => self.resolve_local(variable),
+            Expr::Get { object, .. } => self.resolve_expr(object),
             Expr::Set { object, value, .. } => {
                 self.resolve_expr(value);
                 self.resolve_expr(object);

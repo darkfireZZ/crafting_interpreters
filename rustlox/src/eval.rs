@@ -211,13 +211,12 @@ impl Interpreter {
             Expr::Get { object, property } => {
                 let object = self.eval_expr(object)?;
                 if let Value::ClassInstance(object) = object {
-                    object
-                        .borrow()
-                        .get(&property.lexeme)
-                        .ok_or_else(|| RuntimeError {
+                    ClassInstance::get_property(&object, &property.lexeme).ok_or_else(|| {
+                        RuntimeError {
                             ty: RuntimeErrorType::UndefinedProperty,
                             token: property.clone(),
-                        })
+                        }
+                    })
                 } else {
                     Err(RuntimeError {
                         ty: RuntimeErrorType::PropertyAccessOnNonInstance,
@@ -234,7 +233,7 @@ impl Interpreter {
                     let value = self.eval_expr(value)?;
                     object
                         .borrow_mut()
-                        .set(property.lexeme.to_owned(), value.clone());
+                        .set_property(property.lexeme.to_owned(), value.clone());
                     Ok(value)
                 } else {
                     Err(RuntimeError {
@@ -256,6 +255,7 @@ impl Interpreter {
             } => self.eval_logical(operator, left, right),
             Expr::Grouping(expr) => self.eval_expr(expr),
             Expr::Variable(variable) => self.look_up_variable(variable),
+            Expr::This(this_variable) => self.look_up_variable(this_variable),
             Expr::Assignment { variable, value } => {
                 let value = self.eval_expr(value)?;
                 self.assign_to_variable(variable, value.clone())?;
@@ -626,5 +626,17 @@ impl Environment {
                 token: name.clone(),
             }),
         }
+    }
+}
+
+pub fn bind_function(
+    class: &Rc<RefCell<ClassInstance>>,
+    function: &Rc<LoxFunction>,
+) -> LoxFunction {
+    let mut env = Environment::new_inside(Rc::clone(&function.closure));
+    env.define_variable(String::from("this"), Value::ClassInstance(Rc::clone(class)));
+    LoxFunction {
+        definition: function.definition.clone(),
+        closure: Rc::new(RefCell::new(env)),
     }
 }

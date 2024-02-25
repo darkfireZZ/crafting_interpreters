@@ -59,6 +59,7 @@ pub enum Expr {
     },
     Grouping(Box<Expr>),
     Variable(Variable),
+    This(Variable),
     Assignment {
         variable: Variable,
         value: Box<Expr>,
