@@ -120,6 +120,7 @@ impl Display for BuiltInFunction {
 #[derive(Debug)]
 pub struct LoxFunction {
     pub definition: FunctionDefinition,
+    pub is_constructor: bool,
     pub closure: Rc<RefCell<Environment>>,
 }
 

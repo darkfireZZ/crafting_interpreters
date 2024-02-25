@@ -140,6 +140,7 @@ impl Interpreter {
                 let name = function.name.lexeme.to_owned();
                 let value = Value::LoxFunction(Rc::new(LoxFunction {
                     definition: function.clone(),
+                    is_constructor: false,
                     closure: Rc::clone(&self.current_env),
                 }));
                 self.current_env.borrow_mut().define_variable(name, value)
@@ -152,6 +153,7 @@ impl Interpreter {
                         let name = function_definition.name.lexeme.to_owned();
                         let value = Rc::new(LoxFunction {
                             definition: function_definition.clone(),
+                            is_constructor: (function_definition.name.lexeme == "init"),
                             closure: Rc::clone(&self.current_env),
                         });
                         (name, value)
@@ -435,10 +437,14 @@ impl Interpreter {
         if let Some(depth) = variable.depth() {
             self.current_env
                 .borrow()
-                .get_variable_at(variable.name(), depth)
+                .get_variable_at(&variable.name().lexeme, depth)
         } else {
-            self.globals.borrow().get_variable(variable.name())
+            self.globals.borrow().get_variable(&variable.name().lexeme)
         }
+        .ok_or_else(|| RuntimeError {
+            ty: RuntimeErrorType::UndefinedVariable,
+            token: variable.name().clone(),
+        })
     }
 
     fn assign_to_variable(
@@ -521,9 +527,17 @@ impl Callable for LoxFunction {
         std::mem::swap(&mut interpreter.current_env, &mut function_env);
 
         match result {
-            Ok(()) => Ok(Value::Nil),
+            Ok(()) => Ok(if self.is_constructor {
+                self.closure
+                    .borrow()
+                    .get_variable_at("this", 0)
+                    .expect("this is always defined in a constructor")
+            } else {
+                Value::Nil
+            }),
             Err(err) => {
                 if let RuntimeErrorType::Return(return_value) = err.ty {
+                    debug_assert!(!self.is_constructor);
                     Ok(return_value)
                 } else {
                     Err(err)
@@ -586,7 +600,7 @@ impl Environment {
         self.variables.insert(name, value);
     }
 
-    fn get_variable_at(&self, name: &TokenInfo, depth: usize) -> Result<Value, RuntimeError> {
+    fn get_variable_at(&self, name: &str, depth: usize) -> Option<Value> {
         if depth == 0 {
             self.get_variable(name)
         } else {
@@ -598,14 +612,8 @@ impl Environment {
         }
     }
 
-    fn get_variable(&self, name: &TokenInfo) -> Result<Value, RuntimeError> {
-        self.variables
-            .get(&name.lexeme)
-            .cloned()
-            .ok_or_else(|| RuntimeError {
-                ty: RuntimeErrorType::UndefinedVariable,
-                token: name.clone(),
-            })
+    fn get_variable(&self, name: &str) -> Option<Value> {
+        self.variables.get(name).cloned()
     }
 
     fn set_variable_at(
@@ -647,6 +655,7 @@ pub fn bind_function(
     env.define_variable(String::from("this"), Value::ClassInstance(Rc::clone(class)));
     LoxFunction {
         definition: function.definition.clone(),
+        is_constructor: function.is_constructor,
         closure: Rc::new(RefCell::new(env)),
     }
 }

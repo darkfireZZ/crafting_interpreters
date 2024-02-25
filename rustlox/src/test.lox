@@ -16,12 +16,9 @@ class Person {
 }
 
 var max = Person("Max Muster");
-var ref_to_max = max;
 max.greet();
-ref_to_max.greet();
-
-max.change_name("Minni Mann");
+var min = max.init("Minni Mann");
 max.greet();
-ref_to_max.greet();
+min.greet();
 
 var error = Person(); // should raise a runtime error
