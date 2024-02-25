@@ -535,18 +535,28 @@ impl Callable for LoxFunction {
 
 impl Callable for Rc<LoxClass> {
     fn arity(&self) -> u8 {
-        0
+        if let Some(constructor) = self.methods.get("init") {
+            constructor.arity()
+        } else {
+            0
+        }
     }
 
     fn call(
         &self,
-        _interpreter: &mut Interpreter,
-        _arguments: Vec<Value>,
+        interpreter: &mut Interpreter,
+        arguments: Vec<Value>,
     ) -> Result<Value, RuntimeError> {
-        Ok(Value::ClassInstance(Rc::new(RefCell::new(ClassInstance {
+        let new_instance = Rc::new(RefCell::new(ClassInstance {
             properties: HashMap::new(),
             class: Rc::clone(self),
-        }))))
+        }));
+
+        if let Some(constructor) = ClassInstance::get_method(&new_instance, "init") {
+            constructor.call(interpreter, arguments)?;
+        }
+
+        Ok(Value::ClassInstance(new_instance))
     }
 }
 

@@ -1,33 +1,27 @@
-class Cake {
-  taste() {
-    var adjective = "delicious";
-    print "The " + this.flavor + " cake is " + adjective + "!";
-  }
+
+class Person {
+    init(name) {
+        this.name = name;
+        print "[created new person " + name + "]";
+    }
+
+    greet() {
+        print "Hello, " + this.name + "!";
+    }
+
+    change_name(new_name) {
+        print "[changed name of " + this.name + " to " + new_name + "]";
+        this.name = new_name;
+    }
 }
 
-var cake = Cake();
-cake.flavor = "German chocolate";
-cake.taste(); // Prints "The German chocolate cake is delicious!".
+var max = Person("Max Muster");
+var ref_to_max = max;
+max.greet();
+ref_to_max.greet();
 
-class DevonshireCream {
-  serveOn() {
-    return "Scones";
-  }
-}
-print DevonshireCream; // Prints "DevonshireCream".
+max.change_name("Minni Mann");
+max.greet();
+ref_to_max.greet();
 
-var instance = DevonshireCream();
-print instance;
-
-instance.prop1 = "Property 1";
-instance.prop2 = DevonshireCream;
-print instance.prop1;
-print instance.prop2;
-
-instance.self_ref = instance;
-print instance.self_ref.self_ref;
-
-print instance.serveOn();
-print instance.serveOn;
-
-print this; // should raise an error
+var error = Person(); // should raise a runtime error

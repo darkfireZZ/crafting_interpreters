@@ -160,12 +160,17 @@ impl ClassInstance {
             .get(property_name)
             .cloned()
             .or_else(|| {
-                this.borrow()
-                    .class
-                    .methods
-                    .get(property_name)
-                    .map(|method| Value::LoxFunction(Rc::new(eval::bind_function(this, method))))
+                Self::get_method(this, property_name)
+                    .map(|method| Value::LoxFunction(Rc::new(method)))
             })
+    }
+
+    pub fn get_method(this: &Rc<RefCell<ClassInstance>>, method_name: &str) -> Option<LoxFunction> {
+        this.borrow()
+            .class
+            .methods
+            .get(method_name)
+            .map(|method| eval::bind_function(this, method))
     }
 
     pub fn set_property(&mut self, property_name: String, value: Value) {
