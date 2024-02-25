@@ -526,24 +526,25 @@ impl Callable for LoxFunction {
         let result = interpreter.eval_stmts(&self.definition.body);
         std::mem::swap(&mut interpreter.current_env, &mut function_env);
 
-        match result {
-            Ok(()) => Ok(if self.is_constructor {
-                self.closure
-                    .borrow()
-                    .get_variable_at("this", 0)
-                    .expect("this is always defined in a constructor")
-            } else {
-                Value::Nil
-            }),
+        let return_value = match result {
+            Ok(()) => Value::Nil,
             Err(err) => {
                 if let RuntimeErrorType::Return(return_value) = err.ty {
-                    debug_assert!(!self.is_constructor);
-                    Ok(return_value)
+                    return_value
                 } else {
-                    Err(err)
+                    return Err(err);
                 }
             }
-        }
+        };
+
+        Ok(if self.is_constructor && return_value == Value::Nil {
+            self.closure
+                .borrow()
+                .get_variable_at("this", 0)
+                .expect("this is always defined in a constructor")
+        } else {
+            return_value
+        })
     }
 }
 

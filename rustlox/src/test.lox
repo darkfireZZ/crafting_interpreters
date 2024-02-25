@@ -1,24 +1,12 @@
 
-class Person {
-    init(name) {
-        this.name = name;
-        print "[created new person " + name + "]";
-    }
-
-    greet() {
-        print "Hello, " + this.name + "!";
-    }
-
-    change_name(new_name) {
-        print "[changed name of " + this.name + " to " + new_name + "]";
-        this.name = new_name;
+class Ok {
+    init() {
+        return;
     }
 }
 
-var max = Person("Max Muster");
-max.greet();
-var min = max.init("Minni Mann");
-max.greet();
-min.greet();
-
-var error = Person(); // should raise a runtime error
+class Error {
+    init() {
+        return nil;
+    }
+}

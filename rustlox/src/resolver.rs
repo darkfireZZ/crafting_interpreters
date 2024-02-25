@@ -23,6 +23,7 @@ enum ResolutionStatus {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum FunctionType {
     Function,
+    Initializer,
     Method,
 }
 
@@ -94,7 +95,12 @@ impl Resolver {
                     .insert(String::from("this"), ResolutionStatus::Defined);
 
                 for method in &mut class.methods {
-                    self.resolve_function(method, FunctionType::Method);
+                    let function_type = if method.name.lexeme == "init" {
+                        FunctionType::Initializer
+                    } else {
+                        FunctionType::Method
+                    };
+                    self.resolve_function(method, function_type);
                 }
 
                 self.end_scope();
@@ -102,18 +108,20 @@ impl Resolver {
                 self.current_class = enclosing_class_type;
             }
             Stmt::Print(expr) => self.resolve_expr(expr),
-            Stmt::Return { keyword, value } => {
-                if self.current_function.is_none() {
-                    self.errors.add(ResolutionError {
-                        ty: ResolutionErrorType::ReturnFromGlobalScope,
-                        token: keyword.clone(),
-                    });
+            Stmt::Return { keyword, value } => match (self.current_function, value) {
+                (None, _) => self.errors.add(ResolutionError {
+                    ty: ResolutionErrorType::ReturnFromGlobalScope,
+                    token: keyword.clone(),
+                }),
+                (Some(FunctionType::Initializer), Some(_)) => self.errors.add(ResolutionError {
+                    ty: ResolutionErrorType::ReturnValueFromInitializer,
+                    token: keyword.clone(),
+                }),
+                (Some(FunctionType::Function | FunctionType::Method), Some(value)) => {
+                    self.resolve_expr(value)
                 }
-
-                if let Some(value) = value {
-                    self.resolve_expr(value);
-                }
-            }
+                _ => (),
+            },
             Stmt::If {
                 condition,
                 then_branch,
@@ -264,6 +272,7 @@ impl Display for ResolutionError {
 enum ResolutionErrorType {
     ReadLocalVarInItsOwnInitializer,
     ReturnFromGlobalScope,
+    ReturnValueFromInitializer,
     MultipleDefinitionsWithSameName,
     ThisKeywordOutsideOfClass,
 }
@@ -276,6 +285,9 @@ impl Display for ResolutionErrorType {
             }
             Self::ReturnFromGlobalScope => {
                 write!(f, "Cannot return from top-level code")
+            }
+            Self::ReturnValueFromInitializer => {
+                write!(f, "Cannot return value from constructor")
             }
             Self::MultipleDefinitionsWithSameName => {
                 write!(
