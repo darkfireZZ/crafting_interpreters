@@ -1,6 +1,6 @@
 use {
     crate::{
-        data_types::{BuiltInFunction, LoxFunction, Value, ValueType},
+        data_types::{BuiltInFunction, ClassInstance, LoxClass, LoxFunction, Value, ValueType},
         syntax_tree::{Expr, Stmt, SyntaxTree, Variable},
         token::{Token, TokenInfo},
     },
@@ -137,6 +137,13 @@ impl Interpreter {
                 let value = Value::LoxFunction(Rc::new(LoxFunction {
                     definition: function.clone(),
                     closure: Rc::clone(&self.current_env),
+                }));
+                self.current_env.borrow_mut().define_variable(name, value)
+            }
+            Stmt::ClassDeclaration(class) => {
+                let name = class.name.lexeme.to_owned();
+                let value = Value::LoxClass(Rc::new(LoxClass {
+                    definition: class.clone(),
                 }));
                 self.current_env.borrow_mut().define_variable(name, value)
             }
@@ -341,6 +348,7 @@ impl Interpreter {
             Value::LoxFunction(function) => {
                 self.call_function(function.deref(), arguments, opening_paren)
             }
+            Value::LoxClass(class) => self.call_function(&class, arguments, opening_paren),
             _ => Err(RuntimeError {
                 ty: RuntimeErrorType::TypeNotCallable(callee.value_type()),
                 token: opening_paren.clone(),
@@ -469,6 +477,22 @@ impl Callable for LoxFunction {
                 }
             }
         }
+    }
+}
+
+impl Callable for Rc<LoxClass> {
+    fn arity(&self) -> u8 {
+        0
+    }
+
+    fn call(
+        &self,
+        _interpreter: &mut Interpreter,
+        _arguments: Vec<Value>,
+    ) -> Result<Value, RuntimeError> {
+        Ok(Value::ClassInstance(ClassInstance {
+            class: Rc::clone(self),
+        }))
     }
 }
 

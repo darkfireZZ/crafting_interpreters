@@ -12,6 +12,7 @@ pub enum Stmt {
         initializer: Option<Expr>,
     },
     FunctionDeclaration(FunctionDefinition),
+    ClassDeclaration(ClassDefinition),
     Expr(Box<Expr>),
     Print(Box<Expr>),
     Return {
@@ -66,6 +67,12 @@ pub struct FunctionDefinition {
     pub name: TokenInfo,
     pub parameters: Vec<TokenInfo>,
     pub body: Vec<Stmt>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ClassDefinition {
+    pub name: TokenInfo,
+    pub methods: Vec<FunctionDefinition>,
 }
 
 #[derive(Clone, Debug)]

@@ -3,7 +3,7 @@ use {
         data_types::Value,
         error_group::ErrorGroup,
         scanner::Tokenization,
-        syntax_tree::{Expr, FunctionDefinition, Stmt, SyntaxTree, Variable},
+        syntax_tree::{ClassDefinition, Expr, FunctionDefinition, Stmt, SyntaxTree, Variable},
         token::{Token, TokenInfo},
     },
     std::{
@@ -18,6 +18,8 @@ pub fn parse(tokens: Tokenization) -> Result<SyntaxTree, ErrorGroup<ParseError>>
 
 #[derive(Clone, Copy, Debug)]
 enum ParseErrorType {
+    MissingOpeningBraceInClassDeclaration,
+    MissingClosingBraceInClassDeclaration,
     MissingOpeningParenInControlFlowStmt,
     MissingOpeningParenInFunctionDeclaration,
     MissingClosingParenInControlFlowStmt,
@@ -26,6 +28,7 @@ enum ParseErrorType {
     MissingSemicolon,
     ExpectedBlockAfterParameters,
     ExpectedExpression,
+    ExpectedClassName,
     ExpectedFunctionName,
     ExpectedFunctionParameterName,
     ExpectedVariableName,
@@ -39,6 +42,12 @@ enum ParseErrorType {
 impl Display for ParseErrorType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            Self::MissingOpeningBraceInClassDeclaration => {
+                write!(f, "Expected '{{' after class name")
+            }
+            Self::MissingClosingBraceInClassDeclaration => {
+                write!(f, "Unclosed class definition")
+            }
             Self::MissingOpeningParenInControlFlowStmt => {
                 write!(f, "Missing '(' in control flow statement")
             }
@@ -57,6 +66,7 @@ impl Display for ParseErrorType {
             Self::MissingSemicolon => write!(f, "Missing semicolon"),
             Self::ExpectedBlockAfterParameters => write!(f, "Expected '{{' after parameter list"),
             Self::ExpectedExpression => write!(f, "Expected expression"),
+            Self::ExpectedClassName => write!(f, "Expected class name"),
             Self::ExpectedFunctionName => write!(f, "Expected function name"),
             Self::ExpectedFunctionParameterName => write!(f, "Expected parameter name"),
             Self::ExpectedVariableName => write!(f, "Expected variable name"),
@@ -120,7 +130,11 @@ impl Parser {
         if self.matches(|token| token == Token::Var).is_some() {
             self.parse_variable_declaration()
         } else if self.matches(|token| token == Token::Fun).is_some() {
-            self.parse_function_declaration()
+            Ok(Stmt::FunctionDeclaration(
+                self.parse_function_declaration()?,
+            ))
+        } else if self.matches(|token| token == Token::Class).is_some() {
+            self.parse_class_declaration()
         } else {
             self.parse_statement()
         }
@@ -136,7 +150,7 @@ impl Parser {
         Ok(Stmt::VariableDeclaration { name, initializer })
     }
 
-    fn parse_function_declaration(&mut self) -> Result<Stmt, ParseError> {
+    fn parse_function_declaration(&mut self) -> Result<FunctionDefinition, ParseError> {
         let function_name =
             self.try_consume(Token::Identifier, ParseErrorType::ExpectedFunctionName)?;
         self.try_consume(
@@ -180,11 +194,38 @@ impl Parser {
             });
         }
 
-        Ok(Stmt::FunctionDeclaration(FunctionDefinition {
+        Ok(FunctionDefinition {
             name: function_name,
             parameters,
             body,
-        }))
+        })
+    }
+
+    fn parse_class_declaration(&mut self) -> Result<Stmt, ParseError> {
+        let name = self.try_consume(Token::Identifier, ParseErrorType::ExpectedClassName)?;
+        self.try_consume(
+            Token::LeftBrace,
+            ParseErrorType::MissingOpeningBraceInClassDeclaration,
+        )?;
+
+        let mut methods = Vec::new();
+        loop {
+            match self.peek().map(|next| next.token) {
+                Some(Token::RightBrace) => {
+                    self.advance();
+                    return Ok(Stmt::ClassDeclaration(ClassDefinition { name, methods }));
+                }
+                None => {
+                    return Err(ParseError {
+                        ty: ParseErrorType::MissingClosingBraceInClassDeclaration,
+                        token: None,
+                    });
+                }
+                _ => {
+                    methods.push(self.parse_function_declaration()?);
+                }
+            }
+        }
     }
 
     fn parse_statement(&mut self) -> Result<Stmt, ParseError> {

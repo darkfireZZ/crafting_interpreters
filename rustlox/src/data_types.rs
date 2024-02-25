@@ -2,7 +2,7 @@ use {
     crate::{
         // TODO ideally, there should be no reference to eval in this module
         eval::Environment,
-        syntax_tree::FunctionDefinition,
+        syntax_tree::{ClassDefinition, FunctionDefinition},
     },
     std::{
         cell::RefCell,
@@ -19,6 +19,8 @@ pub enum ValueType {
     String,
     BuiltInFunction,
     LoxFunction,
+    LoxClass,
+    ClassInstance,
 }
 
 impl ValueType {
@@ -30,6 +32,8 @@ impl ValueType {
             Self::String => "string",
             Self::BuiltInFunction => "built-in function",
             Self::LoxFunction => "function",
+            Self::LoxClass => "class",
+            Self::ClassInstance => "class instance",
         }
     }
 }
@@ -48,6 +52,8 @@ pub enum Value {
     String(String),
     BuiltInFunction(BuiltInFunction),
     LoxFunction(Rc<LoxFunction>),
+    LoxClass(Rc<LoxClass>),
+    ClassInstance(ClassInstance),
 }
 
 impl Value {
@@ -59,6 +65,8 @@ impl Value {
             Self::String(_) => ValueType::String,
             Self::BuiltInFunction(_) => ValueType::BuiltInFunction,
             Self::LoxFunction(_) => ValueType::LoxFunction,
+            Self::LoxClass(_) => ValueType::LoxClass,
+            Self::ClassInstance(_) => ValueType::ClassInstance,
         }
     }
 
@@ -82,7 +90,11 @@ impl Display for Value {
             Self::Number(val) => val.fmt(f),
             Self::String(val) => val.fmt(f),
             Self::BuiltInFunction(function) => write!(f, "<built-in fn {}>", function),
-            Self::LoxFunction(function) => write!(f, "<fn {} >", function.definition.name),
+            Self::LoxFunction(function) => write!(f, "<fn {}>", function.definition.name.lexeme),
+            Self::LoxClass(class) => write!(f, "<class {}>", class.definition.name.lexeme),
+            Self::ClassInstance(instance) => {
+                write!(f, "<{} instance>", instance.class.definition.name.lexeme)
+            }
         }
     }
 }
@@ -113,3 +125,29 @@ impl PartialEq for LoxFunction {
 }
 
 impl Eq for LoxFunction {}
+
+#[derive(Debug)]
+pub struct LoxClass {
+    pub definition: ClassDefinition,
+}
+
+impl PartialEq for LoxClass {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::eq(self, other)
+    }
+}
+
+impl Eq for LoxClass {}
+
+#[derive(Clone, Debug)]
+pub struct ClassInstance {
+    pub class: Rc<LoxClass>,
+}
+
+impl PartialEq for ClassInstance {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::eq(self, other)
+    }
+}
+
+impl Eq for ClassInstance {}

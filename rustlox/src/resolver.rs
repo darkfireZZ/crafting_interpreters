@@ -72,6 +72,10 @@ impl Resolver {
                 self.define(&function.name);
                 self.resolve_function(function);
             }
+            Stmt::ClassDeclaration(class) => {
+                self.declare(&class.name);
+                self.define(&class.name);
+            }
             Stmt::Print(expr) => self.resolve_expr(expr),
             Stmt::Return { keyword, value } => {
                 if self.current_function.is_none() {
