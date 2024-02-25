@@ -145,8 +145,22 @@ impl Interpreter {
                 self.current_env.borrow_mut().define_variable(name, value)
             }
             Stmt::ClassDeclaration(class) => {
+                let methods = class
+                    .methods
+                    .iter()
+                    .map(|function_definition| {
+                        let name = function_definition.name.lexeme.to_owned();
+                        let value = Rc::new(LoxFunction {
+                            definition: function_definition.clone(),
+                            closure: Rc::clone(&self.current_env),
+                        });
+                        (name, value)
+                    })
+                    .collect();
                 let name = class.name.lexeme.to_owned();
                 let value = Value::LoxClass(Rc::new(LoxClass {
+                    name: name.clone(),
+                    methods,
                     definition: class.clone(),
                 }));
                 self.current_env.borrow_mut().define_variable(name, value)

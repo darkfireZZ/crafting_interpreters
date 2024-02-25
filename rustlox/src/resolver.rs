@@ -23,6 +23,7 @@ enum ResolutionStatus {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum FunctionType {
     Function,
+    Method,
 }
 
 #[derive(Debug)]
@@ -70,11 +71,15 @@ impl Resolver {
             Stmt::FunctionDeclaration(function) => {
                 self.declare(&function.name);
                 self.define(&function.name);
-                self.resolve_function(function);
+                self.resolve_function(function, FunctionType::Function);
             }
             Stmt::ClassDeclaration(class) => {
                 self.declare(&class.name);
                 self.define(&class.name);
+
+                for method in &mut class.methods {
+                    self.resolve_function(method, FunctionType::Method);
+                }
             }
             Stmt::Print(expr) => self.resolve_expr(expr),
             Stmt::Return { keyword, value } => {
@@ -157,9 +162,9 @@ impl Resolver {
         }
     }
 
-    fn resolve_function(&mut self, function: &mut FunctionDefinition) {
+    fn resolve_function(&mut self, function: &mut FunctionDefinition, function_type: FunctionType) {
         let enclosing_func_type = self.current_function;
-        self.current_function = Some(FunctionType::Function);
+        self.current_function = Some(function_type);
         self.begin_scope();
         for param in &function.parameters {
             self.declare(param);

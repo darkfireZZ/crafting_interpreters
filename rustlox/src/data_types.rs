@@ -133,6 +133,8 @@ impl Eq for LoxFunction {}
 
 #[derive(Debug)]
 pub struct LoxClass {
+    pub name: String,
+    pub methods: HashMap<String, Rc<LoxFunction>>,
     pub definition: ClassDefinition,
 }
 
@@ -152,7 +154,12 @@ pub struct ClassInstance {
 
 impl ClassInstance {
     pub fn get(&self, property_name: &str) -> Option<Value> {
-        self.properties.get(property_name).cloned()
+        self.properties.get(property_name).cloned().or_else(|| {
+            self.class
+                .methods
+                .get(property_name)
+                .map(|method| Value::LoxFunction(Rc::clone(method)))
+        })
     }
 
     pub fn set(&mut self, property_name: String, value: Value) {
