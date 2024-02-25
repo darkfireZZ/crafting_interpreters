@@ -6,6 +6,7 @@ use {
     },
     std::{
         cell::RefCell,
+        collections::HashMap,
         fmt::{self, Display},
         rc::Rc,
     },
@@ -53,7 +54,7 @@ pub enum Value {
     BuiltInFunction(BuiltInFunction),
     LoxFunction(Rc<LoxFunction>),
     LoxClass(Rc<LoxClass>),
-    ClassInstance(ClassInstance),
+    ClassInstance(Rc<RefCell<ClassInstance>>),
 }
 
 impl Value {
@@ -93,7 +94,11 @@ impl Display for Value {
             Self::LoxFunction(function) => write!(f, "<fn {}>", function.definition.name.lexeme),
             Self::LoxClass(class) => write!(f, "<class {}>", class.definition.name.lexeme),
             Self::ClassInstance(instance) => {
-                write!(f, "<{} instance>", instance.class.definition.name.lexeme)
+                write!(
+                    f,
+                    "<{} instance>",
+                    instance.borrow().class.definition.name.lexeme
+                )
             }
         }
     }
@@ -142,6 +147,17 @@ impl Eq for LoxClass {}
 #[derive(Clone, Debug)]
 pub struct ClassInstance {
     pub class: Rc<LoxClass>,
+    pub properties: HashMap<String, Value>,
+}
+
+impl ClassInstance {
+    pub fn get(&self, property_name: &str) -> Option<Value> {
+        self.properties.get(property_name).cloned()
+    }
+
+    pub fn set(&mut self, property_name: String, value: Value) {
+        self.properties.insert(property_name, value);
+    }
 }
 
 impl PartialEq for ClassInstance {

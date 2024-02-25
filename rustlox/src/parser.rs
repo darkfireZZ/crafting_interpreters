@@ -31,6 +31,7 @@ enum ParseErrorType {
     ExpectedClassName,
     ExpectedFunctionName,
     ExpectedFunctionParameterName,
+    ExpectedPropertyNameAfterDot,
     ExpectedVariableName,
     InvalidAssignmentTarget,
     TooManyFunctionArguments,
@@ -69,6 +70,7 @@ impl Display for ParseErrorType {
             Self::ExpectedClassName => write!(f, "Expected class name"),
             Self::ExpectedFunctionName => write!(f, "Expected function name"),
             Self::ExpectedFunctionParameterName => write!(f, "Expected parameter name"),
+            Self::ExpectedPropertyNameAfterDot => write!(f, "Expected property name after '.'"),
             Self::ExpectedVariableName => write!(f, "Expected variable name"),
             Self::InvalidAssignmentTarget => write!(f, "Invalid assignment target"),
             Self::TooManyFunctionArguments => write!(f, "Functions may have at most 255 arguments"),
@@ -393,6 +395,12 @@ impl Parser {
                         variable,
                         value: Box::new(value),
                     })
+                } else if let Expr::Get { object, property } = left {
+                    Ok(Expr::Set {
+                        object,
+                        property,
+                        value: Box::new(value),
+                    })
                 } else {
                     Err(ParseError {
                         ty: ParseErrorType::InvalidAssignmentTarget,
@@ -523,10 +531,22 @@ impl Parser {
 
     fn parse_function_call(&mut self) -> Result<Expr, ParseError> {
         let mut expr = self.parse_primary()?;
-        while let Some(opening_paren) = self.matches(|token| token == Token::LeftParen) {
-            expr = self.parse_function_arguments(opening_paren, expr)?;
+        loop {
+            if let Some(opening_paren) = self.matches(|token| token == Token::LeftParen) {
+                expr = self.parse_function_arguments(opening_paren, expr)?;
+            } else if self.matches(|token| token == Token::Dot).is_some() {
+                let property = self.try_consume(
+                    Token::Identifier,
+                    ParseErrorType::ExpectedPropertyNameAfterDot,
+                )?;
+                expr = Expr::Get {
+                    object: Box::new(expr),
+                    property,
+                };
+            } else {
+                return Ok(expr);
+            }
         }
-        Ok(expr)
     }
 
     fn parse_function_arguments(

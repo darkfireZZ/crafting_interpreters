@@ -34,6 +34,15 @@ pub enum Stmt {
 #[derive(Clone, Debug)]
 pub enum Expr {
     Literal(Value),
+    Get {
+        object: Box<Expr>,
+        property: TokenInfo,
+    },
+    Set {
+        object: Box<Expr>,
+        property: TokenInfo,
+        value: Box<Expr>,
+    },
     Unary {
         operator: TokenInfo,
         expr: Box<Expr>,

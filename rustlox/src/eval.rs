@@ -38,7 +38,9 @@ enum RuntimeErrorType {
         expected: u8,
         actual: u8,
     },
+    PropertyAccessOnNonInstance,
     TypeNotCallable(ValueType),
+    UndefinedProperty,
     UndefinedVariable,
     Return(Value),
 }
@@ -66,7 +68,9 @@ impl Display for RuntimeErrorType {
             Self::IncorrectArgumentCount { expected, actual } => {
                 write!(f, "Expected {expected} arguments, but got {actual}")
             }
+            Self::PropertyAccessOnNonInstance => write!(f, "Only class instances have properties"),
             Self::TypeNotCallable(ty) => write!(f, "{ty} is not callable"),
+            Self::UndefinedProperty => write!(f, "Undefined property"),
             Self::UndefinedVariable => write!(f, "Undefined variable"),
             Self::Return(_) => write!(f, "Return is only valid inside a function"),
         }
@@ -190,6 +194,41 @@ impl Interpreter {
     fn eval_expr(&mut self, expr: &Expr) -> Result<Value, RuntimeError> {
         match expr {
             Expr::Literal(value) => Ok(value.clone()),
+            Expr::Get { object, property } => {
+                let object = self.eval_expr(object)?;
+                if let Value::ClassInstance(object) = object {
+                    object
+                        .borrow()
+                        .get(&property.lexeme)
+                        .ok_or_else(|| RuntimeError {
+                            ty: RuntimeErrorType::UndefinedProperty,
+                            token: property.clone(),
+                        })
+                } else {
+                    Err(RuntimeError {
+                        ty: RuntimeErrorType::PropertyAccessOnNonInstance,
+                        token: property.clone(),
+                    })
+                }
+            }
+            Expr::Set {
+                object,
+                property,
+                value,
+            } => {
+                if let Value::ClassInstance(object) = self.eval_expr(object)? {
+                    let value = self.eval_expr(value)?;
+                    object
+                        .borrow_mut()
+                        .set(property.lexeme.to_owned(), value.clone());
+                    Ok(value)
+                } else {
+                    Err(RuntimeError {
+                        ty: RuntimeErrorType::PropertyAccessOnNonInstance,
+                        token: property.clone(),
+                    })
+                }
+            }
             Expr::Unary { operator, expr } => self.eval_unary(operator, expr),
             Expr::Binary {
                 operator,
@@ -490,9 +529,10 @@ impl Callable for Rc<LoxClass> {
         _interpreter: &mut Interpreter,
         _arguments: Vec<Value>,
     ) -> Result<Value, RuntimeError> {
-        Ok(Value::ClassInstance(ClassInstance {
+        Ok(Value::ClassInstance(Rc::new(RefCell::new(ClassInstance {
+            properties: HashMap::new(),
             class: Rc::clone(self),
-        }))
+        }))))
     }
 }
 

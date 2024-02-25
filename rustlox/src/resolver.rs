@@ -124,6 +124,13 @@ impl Resolver {
                     self.resolve_local(variable);
                 }
             }
+            Expr::Get { object, .. } => {
+                self.resolve_expr(object);
+            }
+            Expr::Set { object, value, .. } => {
+                self.resolve_expr(value);
+                self.resolve_expr(object);
+            }
             Expr::Assignment { variable, value } => {
                 self.resolve_expr(value);
                 self.resolve_local(variable);
