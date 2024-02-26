@@ -161,6 +161,13 @@ impl Interpreter {
                     }
                     None => None,
                 };
+                if let Some(superclass) = &superclass {
+                    self.current_env = Environment::new_inside(&self.current_env);
+                    self.current_env.borrow_mut().define_variable(
+                        String::from("super"),
+                        Value::LoxClass(Rc::clone(superclass)),
+                    );
+                }
                 let methods = class
                     .methods
                     .iter()
@@ -174,6 +181,16 @@ impl Interpreter {
                         (name, value)
                     })
                     .collect();
+                if superclass.is_some() {
+                    let super_env = Rc::clone(
+                        self.current_env
+                            .borrow()
+                            .enclosing_env
+                            .as_ref()
+                            .expect("in class scope"),
+                    );
+                    self.current_env = super_env;
+                }
                 let name = class.name.lexeme.to_owned();
                 let value = Value::LoxClass(Rc::new(LoxClass {
                     name: name.clone(),
@@ -184,9 +201,7 @@ impl Interpreter {
                 self.current_env.borrow_mut().define_variable(name, value)
             }
             Stmt::Block(stmts) => {
-                let mut block_env = Rc::new(RefCell::new(Environment::new_inside(Rc::clone(
-                    &self.current_env,
-                ))));
+                let mut block_env = Environment::new_inside(&self.current_env);
                 std::mem::swap(&mut self.current_env, &mut block_env);
                 let result = self.eval_stmts(stmts);
                 std::mem::swap(&mut self.current_env, &mut block_env);
@@ -273,6 +288,31 @@ impl Interpreter {
             } => self.eval_logical(operator, left, right),
             Expr::Grouping(expr) => self.eval_expr(expr),
             Expr::Variable(variable) => self.look_up_variable(variable),
+            Expr::Super {
+                keyword,
+                method_name,
+            } => {
+                let Value::LoxClass(superclass) = self.look_up_variable(keyword)? else {
+                    panic!("Interpreter bug, looking up \"super\" didn't return a class");
+                };
+                let Value::ClassInstance(this) = self
+                    .current_env
+                    .borrow()
+                    .get_variable_at("this", keyword.depth().expect("not a global variable") - 1)
+                    .expect("this is defined in a class")
+                else {
+                    panic!("Interpreter bug, looking up \"this\" didn't return a class instance");
+                };
+
+                if let Some(method) = superclass.get_method(&method_name.lexeme) {
+                    Ok(Value::LoxFunction(Rc::new(bind_function(&this, method))))
+                } else {
+                    Err(RuntimeError {
+                        ty: RuntimeErrorType::UndefinedProperty,
+                        token: method_name.clone(),
+                    })
+                }
+            }
             Expr::This(this_variable) => self.look_up_variable(this_variable),
             Expr::Assignment { variable, value } => {
                 let value = self.eval_expr(value)?;
@@ -606,11 +646,11 @@ impl Environment {
         }
     }
 
-    fn new_inside(enclosing_env: Rc<RefCell<Self>>) -> Self {
-        Self {
+    fn new_inside(enclosing_env: &Rc<RefCell<Self>>) -> Rc<RefCell<Self>> {
+        Rc::new(RefCell::new(Self {
             variables: HashMap::new(),
-            enclosing_env: Some(enclosing_env),
-        }
+            enclosing_env: Some(Rc::clone(enclosing_env)),
+        }))
     }
 
     fn define_variable(&mut self, name: String, value: Value) {
@@ -668,11 +708,12 @@ pub fn bind_function(
     class: &Rc<RefCell<ClassInstance>>,
     function: &Rc<LoxFunction>,
 ) -> LoxFunction {
-    let mut env = Environment::new_inside(Rc::clone(&function.closure));
-    env.define_variable(String::from("this"), Value::ClassInstance(Rc::clone(class)));
+    let env = Environment::new_inside(&function.closure);
+    env.borrow_mut()
+        .define_variable(String::from("this"), Value::ClassInstance(Rc::clone(class)));
     LoxFunction {
         definition: function.definition.clone(),
         is_constructor: function.is_constructor,
-        closure: Rc::new(RefCell::new(env)),
+        closure: env,
     }
 }

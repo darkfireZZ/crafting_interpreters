@@ -29,9 +29,11 @@ enum ParseErrorType {
     ExpectedBlockAfterParameters,
     ExpectedExpression,
     ExpectedClassName,
+    ExpectedDotAfterSuper,
     ExpectedFunctionName,
     ExpectedFunctionParameterName,
     ExpectedPropertyNameAfterDot,
+    ExpectedSuperclassMethodName,
     ExpectedSuperclassName,
     ExpectedVariableName,
     InvalidAssignmentTarget,
@@ -69,9 +71,13 @@ impl Display for ParseErrorType {
             Self::ExpectedBlockAfterParameters => write!(f, "Expected '{{' after parameter list"),
             Self::ExpectedExpression => write!(f, "Expected expression"),
             Self::ExpectedClassName => write!(f, "Expected class name"),
+            Self::ExpectedDotAfterSuper => write!(f, "Expected '.' after 'super'"),
             Self::ExpectedFunctionName => write!(f, "Expected function name"),
             Self::ExpectedFunctionParameterName => write!(f, "Expected parameter name"),
             Self::ExpectedPropertyNameAfterDot => write!(f, "Expected property name after '.'"),
+            Self::ExpectedSuperclassMethodName => {
+                write!(f, "Expected superclass method name after 'super.'")
+            }
             Self::ExpectedSuperclassName => write!(f, "Expected superclass name after '<'"),
             Self::ExpectedVariableName => write!(f, "Expected variable name"),
             Self::InvalidAssignmentTarget => write!(f, "Invalid assignment target"),
@@ -626,6 +632,16 @@ impl Parser {
             Ok(Expr::Variable(Variable::new(token)))
         } else if let Some(keyword) = self.matches(|token| token == Token::This) {
             Ok(Expr::This(Variable::new(keyword)))
+        } else if let Some(keyword) = self.matches(|token| token == Token::Super) {
+            self.try_consume(Token::Dot, ParseErrorType::ExpectedDotAfterSuper)?;
+            let method_name = self.try_consume(
+                Token::Identifier,
+                ParseErrorType::ExpectedSuperclassMethodName,
+            )?;
+            Ok(Expr::Super {
+                keyword: Variable::new(keyword),
+                method_name,
+            })
         } else {
             Err(ParseError {
                 ty: ParseErrorType::ExpectedExpression,

@@ -59,6 +59,10 @@ pub enum Expr {
     },
     Grouping(Box<Expr>),
     Variable(Variable),
+    Super {
+        keyword: Variable,
+        method_name: TokenInfo,
+    },
     This(Variable),
     Assignment {
         variable: Variable,

@@ -99,6 +99,14 @@ impl Resolver {
                 self.declare(&class.name);
                 self.define(&class.name);
 
+                if class.superclass.is_some() {
+                    self.begin_scope();
+                    self.scopes
+                        .last_mut()
+                        .expect("inside class scope")
+                        .insert(String::from("super"), ResolutionStatus::Defined);
+                }
+
                 self.begin_scope();
                 self.scopes
                     .last_mut()
@@ -115,6 +123,10 @@ impl Resolver {
                 }
 
                 self.end_scope();
+
+                if class.superclass.is_some() {
+                    self.end_scope();
+                }
 
                 self.current_class = enclosing_class_type;
             }
@@ -168,6 +180,7 @@ impl Resolver {
                     self.resolve_local(variable);
                 }
             }
+            Expr::Super { keyword, .. } => self.resolve_local(keyword),
             Expr::This(variable) => {
                 if self.current_class.is_none() {
                     self.errors.add(ResolutionError {

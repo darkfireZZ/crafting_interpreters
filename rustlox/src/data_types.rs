@@ -142,7 +142,7 @@ pub struct LoxClass {
 }
 
 impl LoxClass {
-    fn get_method(&self, method_name: &str) -> Option<&Rc<LoxFunction>> {
+    pub fn get_method(&self, method_name: &str) -> Option<&Rc<LoxFunction>> {
         self.methods.get(method_name).or_else(|| {
             self.superclass
                 .as_ref()
