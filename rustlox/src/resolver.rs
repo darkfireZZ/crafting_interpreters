@@ -30,6 +30,7 @@ enum FunctionType {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ClassType {
     Class,
+    Subclass,
 }
 
 #[derive(Debug)]
@@ -86,6 +87,7 @@ impl Resolver {
                 self.current_class = Some(ClassType::Class);
 
                 if let Some(superclass) = &mut class.superclass {
+                    self.current_class = Some(ClassType::Subclass);
                     if superclass.name().lexeme == class.name.lexeme {
                         self.errors.add(ResolutionError {
                             ty: ResolutionErrorType::CannotInheritFromItself,
@@ -180,7 +182,20 @@ impl Resolver {
                     self.resolve_local(variable);
                 }
             }
-            Expr::Super { keyword, .. } => self.resolve_local(keyword),
+            Expr::Super { keyword, .. } => {
+                match self.current_class {
+                    Some(ClassType::Subclass) => (),
+                    Some(ClassType::Class) => self.errors.add(ResolutionError {
+                        ty: ResolutionErrorType::SuperKeywordWithoutSuperclass,
+                        token: keyword.name().clone(),
+                    }),
+                    None => self.errors.add(ResolutionError {
+                        ty: ResolutionErrorType::SuperKeywordOutsideOfClass,
+                        token: keyword.name().clone(),
+                    }),
+                }
+                self.resolve_local(keyword)
+            }
             Expr::This(variable) => {
                 if self.current_class.is_none() {
                     self.errors.add(ResolutionError {
@@ -299,6 +314,8 @@ enum ResolutionErrorType {
     ReturnFromGlobalScope,
     ReturnValueFromInitializer,
     MultipleDefinitionsWithSameName,
+    SuperKeywordOutsideOfClass,
+    SuperKeywordWithoutSuperclass,
     ThisKeywordOutsideOfClass,
 }
 
@@ -320,6 +337,10 @@ impl Display for ResolutionErrorType {
                     f,
                     "There is already a variable with this name in this scope"
                 )
+            }
+            Self::SuperKeywordOutsideOfClass => write!(f, "Cannot ues 'super' outside of a class"),
+            Self::SuperKeywordWithoutSuperclass => {
+                write!(f, "Cannot use 'super' in a class with no superclass")
             }
             Self::ThisKeywordOutsideOfClass => {
                 write!(f, "Cannot use 'this' outside of a class")
