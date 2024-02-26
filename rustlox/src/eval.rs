@@ -38,6 +38,7 @@ enum RuntimeErrorType {
         expected: u8,
         actual: u8,
     },
+    InvalidSuperclass,
     PropertyAccessOnNonInstance,
     TypeNotCallable(ValueType),
     UndefinedProperty,
@@ -68,6 +69,7 @@ impl Display for RuntimeErrorType {
             Self::IncorrectArgumentCount { expected, actual } => {
                 write!(f, "Expected {expected} arguments, but got {actual}")
             }
+            Self::InvalidSuperclass => write!(f, "Superclass must be a class"),
             Self::PropertyAccessOnNonInstance => write!(f, "Only class instances have properties"),
             Self::TypeNotCallable(ty) => write!(f, "{ty} is not callable"),
             Self::UndefinedProperty => write!(f, "Undefined property"),
@@ -146,6 +148,19 @@ impl Interpreter {
                 self.current_env.borrow_mut().define_variable(name, value)
             }
             Stmt::ClassDeclaration(class) => {
+                let superclass = match &class.superclass {
+                    Some(superclass) => {
+                        if let Value::LoxClass(superclass) = self.look_up_variable(superclass)? {
+                            Some(superclass)
+                        } else {
+                            return Err(RuntimeError {
+                                ty: RuntimeErrorType::InvalidSuperclass,
+                                token: superclass.name().clone(),
+                            });
+                        }
+                    }
+                    None => None,
+                };
                 let methods = class
                     .methods
                     .iter()
@@ -163,6 +178,7 @@ impl Interpreter {
                 let value = Value::LoxClass(Rc::new(LoxClass {
                     name: name.clone(),
                     methods,
+                    superclass,
                     definition: class.clone(),
                 }));
                 self.current_env.borrow_mut().define_variable(name, value)

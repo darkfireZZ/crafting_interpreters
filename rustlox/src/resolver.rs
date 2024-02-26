@@ -85,6 +85,17 @@ impl Resolver {
                 let enclosing_class_type = self.current_class;
                 self.current_class = Some(ClassType::Class);
 
+                if let Some(superclass) = &mut class.superclass {
+                    if superclass.name().lexeme == class.name.lexeme {
+                        self.errors.add(ResolutionError {
+                            ty: ResolutionErrorType::CannotInheritFromItself,
+                            token: superclass.name().clone(),
+                        });
+                    } else {
+                        self.resolve_local(superclass);
+                    }
+                }
+
                 self.declare(&class.name);
                 self.define(&class.name);
 
@@ -270,6 +281,7 @@ impl Display for ResolutionError {
 
 #[derive(Clone, Debug)]
 enum ResolutionErrorType {
+    CannotInheritFromItself,
     ReadLocalVarInItsOwnInitializer,
     ReturnFromGlobalScope,
     ReturnValueFromInitializer,
@@ -280,6 +292,7 @@ enum ResolutionErrorType {
 impl Display for ResolutionErrorType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            Self::CannotInheritFromItself => write!(f, "A class cannot inherit from itself"),
             Self::ReadLocalVarInItsOwnInitializer => {
                 write!(f, "Cannot read local variable in its own initializer")
             }

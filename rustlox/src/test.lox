@@ -1,12 +1,10 @@
 
-class Ok {
-    init() {
-        return;
-    }
+class Doughnut {
+  cook() {
+    print "Fry until golden brown.";
+  }
 }
 
-class Error {
-    init() {
-        return nil;
-    }
-}
+class BostonCream < Doughnut {}
+
+BostonCream().cook();

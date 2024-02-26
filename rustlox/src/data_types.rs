@@ -137,7 +137,18 @@ impl Eq for LoxFunction {}
 pub struct LoxClass {
     pub name: String,
     pub methods: HashMap<String, Rc<LoxFunction>>,
+    pub superclass: Option<Rc<LoxClass>>,
     pub definition: ClassDefinition,
+}
+
+impl LoxClass {
+    fn get_method(&self, method_name: &str) -> Option<&Rc<LoxFunction>> {
+        self.methods.get(method_name).or_else(|| {
+            self.superclass
+                .as_ref()
+                .and_then(|superclass| superclass.get_method(method_name))
+        })
+    }
 }
 
 impl PartialEq for LoxClass {
@@ -169,8 +180,7 @@ impl ClassInstance {
     pub fn get_method(this: &Rc<RefCell<ClassInstance>>, method_name: &str) -> Option<LoxFunction> {
         this.borrow()
             .class
-            .methods
-            .get(method_name)
+            .get_method(method_name)
             .map(|method| eval::bind_function(this, method))
     }
 

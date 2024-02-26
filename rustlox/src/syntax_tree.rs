@@ -83,6 +83,7 @@ pub struct FunctionDefinition {
 pub struct ClassDefinition {
     pub name: TokenInfo,
     pub methods: Vec<FunctionDefinition>,
+    pub superclass: Option<Variable>,
 }
 
 #[derive(Clone, Debug)]

@@ -32,6 +32,7 @@ enum ParseErrorType {
     ExpectedFunctionName,
     ExpectedFunctionParameterName,
     ExpectedPropertyNameAfterDot,
+    ExpectedSuperclassName,
     ExpectedVariableName,
     InvalidAssignmentTarget,
     TooManyFunctionArguments,
@@ -71,6 +72,7 @@ impl Display for ParseErrorType {
             Self::ExpectedFunctionName => write!(f, "Expected function name"),
             Self::ExpectedFunctionParameterName => write!(f, "Expected parameter name"),
             Self::ExpectedPropertyNameAfterDot => write!(f, "Expected property name after '.'"),
+            Self::ExpectedSuperclassName => write!(f, "Expected superclass name after '<'"),
             Self::ExpectedVariableName => write!(f, "Expected variable name"),
             Self::InvalidAssignmentTarget => write!(f, "Invalid assignment target"),
             Self::TooManyFunctionArguments => write!(f, "Functions may have at most 255 arguments"),
@@ -205,6 +207,15 @@ impl Parser {
 
     fn parse_class_declaration(&mut self) -> Result<Stmt, ParseError> {
         let name = self.try_consume(Token::Identifier, ParseErrorType::ExpectedClassName)?;
+
+        let superclass = if self.matches(|token| token == Token::Less).is_some() {
+            let superclass_name =
+                self.try_consume(Token::Identifier, ParseErrorType::ExpectedSuperclassName)?;
+            Some(Variable::new(superclass_name))
+        } else {
+            None
+        };
+
         self.try_consume(
             Token::LeftBrace,
             ParseErrorType::MissingOpeningBraceInClassDeclaration,
@@ -215,7 +226,11 @@ impl Parser {
             match self.peek().map(|next| next.token) {
                 Some(Token::RightBrace) => {
                     self.advance();
-                    return Ok(Stmt::ClassDeclaration(ClassDefinition { name, methods }));
+                    return Ok(Stmt::ClassDeclaration(ClassDefinition {
+                        name,
+                        superclass,
+                        methods,
+                    }));
                 }
                 None => {
                     return Err(ParseError {
