@@ -1,6 +1,7 @@
 
 CC = gcc
-CFLAGS = -O1 -std=c99 -Wall -Wextra -Wpedantic -Werror -Wno-unused-parameter
+CFLAGS = -O1 -std=c99 -Wall -Wextra -Wpedantic -Werror -Wno-unused-parameter \
+		 -Wno-unused-function # TODO: enable this again
 
 SRC_DIR = ./src
 BUILD_DIR = ./build
