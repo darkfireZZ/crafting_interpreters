@@ -33,6 +33,7 @@ void initVM() {
     vm.stackCapacity = STACK_SIZE_INIT;
     resetStack();
     vm.objects = NULL;
+    initTable(&vm.strings);
 }
 
 void freeVM() {
@@ -40,6 +41,7 @@ void freeVM() {
     vm.stack = NULL;
     vm.stackTop = NULL;
     vm.stackCapacity = 0;
+    freeTable(&vm.strings);
     freeObjects();
 }
 

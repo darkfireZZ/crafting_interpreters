@@ -3,6 +3,7 @@
 #define clox_vm_h
 
 #include "chunk.h"
+#include "table.h"
 #include "value.h"
 
 #define STACK_SIZE_INIT 256
@@ -13,6 +14,7 @@ typedef struct {
     int stackCapacity;
     Value* stack;
     Value* stackTop;
+    Table strings;
     Obj* objects;
 } VM;
 
